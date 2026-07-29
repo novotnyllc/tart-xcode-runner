@@ -19,7 +19,6 @@ CACHE="$SHARE/cache"
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
 PACKED_VM=${TART_XCUI_PACKED_VM:-${BASE_VM}-packed}
 DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-26.5.json"}
-CONFIG_HASH="$STATE/image-config-${BASE_VM}.sha256"
 PACKER_TART_COMMIT=c10d61142fdce6ca40c139a6575ce898e867b0f1
 READY_TIMEOUT=${TART_XCUI_READY_TIMEOUT:-600}
 UPGRADE_TIMEOUT=${TART_XCUI_UPGRADE_TIMEOUT:-7200}
@@ -289,10 +288,11 @@ rebuild_image() {
   /usr/bin/plutil -convert json -o - "$config" >/dev/null
   mkdir -p "$STATE" "$CACHE" "$TART_HOME"
 
-  local hash strategy
-  hash=$(/usr/bin/shasum -a 256 "$config" | /usr/bin/awk '{print $1}')
-  if vm_exists "$BASE_VM" &&
-      [[ -f $CONFIG_HASH && $(<"$CONFIG_HASH") == $hash ]]; then
+  # Runtime validation is the authority: if the current golden image already
+  # satisfies the config, a rebuild is a ~2 minute no-op instead of a full
+  # build cycle.
+  local strategy
+  if vm_exists "$BASE_VM"; then
     runner_quiesce
     if validate_exact_vm "$BASE_VM" "$config"; then
       runner_release
@@ -300,7 +300,7 @@ rebuild_image() {
       return 0
     fi
     runner_release
-    print "Golden image checksum matched but runtime validation failed; rebuilding"
+    print "Golden image does not satisfy $config; rebuilding"
   fi
   strategy=$(json_value "$config" buildStrategy 2>/dev/null || print upgrade)
   case $strategy in
@@ -309,7 +309,6 @@ rebuild_image() {
     download) download_image "$(json_value "$config" seedImage)" "$config" ;;
     *) die "unsupported buildStrategy: $strategy" ;;
   esac
-  print "$hash" >"$CONFIG_HASH"
 }
 
 upgrade_image() {
@@ -350,6 +349,8 @@ upgrade_image() {
   delete_vm "$PACKED_VM"
   print "Cloning update candidate from $source"
   tart clone "$source" "$PACKED_VM"
+  local needs_prime=1
+  [[ $source != $BASE_VM ]] || needs_prime=0
   tart set "$PACKED_VM" \
     --cpu "$(json_value "$config" cpu)" \
     --memory "$(( $(json_value "$config" memoryGB) * 1024 ))" \
@@ -357,7 +358,9 @@ upgrade_image() {
   sleep 10
   trap 'stop_vm "$PACKED_VM"' EXIT
   trap 'stop_vm "$PACKED_VM"; exit 130' INT TERM HUP
-  prime_vm "$PACKED_VM"
+  # A clone of the existing base is already primed; only fresh OCI seeds
+  # need the first-boot migration pass.
+  (( ! needs_prime )) || prime_vm "$PACKED_VM"
   start_upgrade_vm "$PACKED_VM" ||
     die "candidate failed to start; see $STATE/upgrade.log"
   run_pid=$UPGRADE_RUN_PID
@@ -546,9 +549,6 @@ packer_image() {
     validate_exact_vm "$build_vm" "$config" ||
     die "$build_vm failed exact config validation"
   "$RUNNER" prepare --replace "$build_vm"
-  if [[ -n $config ]]; then
-    /usr/bin/shasum -a 256 "$config" | /usr/bin/awk '{print $1}' >"$CONFIG_HASH"
-  fi
   tart delete "$build_vm"
   prune_stale_downloads "" "$archive"
   print "Exact image promoted to $BASE_VM"
