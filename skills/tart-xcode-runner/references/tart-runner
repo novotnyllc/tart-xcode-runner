@@ -235,6 +235,7 @@ cleanup_work_vm() {
     print -u2 -- "Failed VM retained for inspection: $WORK_VM"
   else
     delete_vm "$WORK_VM"
+    print "tart: deleted disposable VM $WORK_VM; golden image $BASE_VM untouched"
   fi
 }
 
@@ -273,14 +274,18 @@ run_locked() {
   cp "$REFERENCES/$helper" "$result_dir/$helper"
   print "results: $result_dir"
 
+  print "tart: cloning golden image $BASE_VM -> disposable VM $WORK_VM"
   tart clone "$BASE_VM" "$WORK_VM"
   trap 'RUN_EXIT_CODE=130; cleanup_work_vm; exit 130' INT TERM HUP
   local run_args=(--no-graphics --dir="artifacts:$result_dir")
   (( has_repo == 0 )) || run_args+=(--dir="source:${repo}:ro")
+  print "tart: booting $WORK_VM headless; the host stays free"
   tart run "${run_args[@]}" "$WORK_VM" >"$RUN_TART_LOG" 2>&1 &
   run_pid=$!
   wait_for_agent "$WORK_VM" "$run_pid" ||
     die "working VM failed to start; see $RUN_TART_LOG"
+  print "tart: guest ready — macOS $(tart exec "$WORK_VM" /usr/bin/sw_vers -productVersion 2>/dev/null)" \
+    "($(tart exec "$WORK_VM" /usr/bin/sw_vers -buildVersion 2>/dev/null)), running in the VM"
 
   (
     sleep "$RUN_TIMEOUT"
