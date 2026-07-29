@@ -103,6 +103,29 @@ The golden base also selects Xcode's CLI tools, completes first-launch tasks,
 accepts the license, installs the Metal toolchain, enables auto-login, and
 disables sleep, screensavers, and screen locking.
 
+### Optional Developer ID setup
+
+The current runner does not automate a Developer ID build/sign/return lane.
+Setup alone does not make entitlement-dependent tests pass. Keep using the
+credential-free ad-hoc path unless the project genuinely exercises a restricted
+entitlement such as Keychain Sharing.
+
+Before implementing that lane, follow
+[Profile-backed entitlements](../../README.md#profile-backed-entitlements).
+It is the canonical operator procedure for CSR and profile creation, 1Password
+transfer, multiple hosts, Keychain readiness, and certificate-slot tradeoffs.
+A Developer ID identity stays on approved signing hosts: never put a private
+key, `.p12`, password, Apple credential, or API key in the repository, golden
+image, guest share, VM, or test artifacts. Do not register the VM or sign an
+Apple Account into the guest.
+
+The implementation must preserve or reconstruct every product's fully expanded
+entitlements, embed each matching profile, sign nested code inside-out without
+`codesign --deep`, and return the products to the same guest for
+`test-without-building`. Prove a real protected operation through app relaunch,
+including strict signature, entitlement, and `ProvisionsAllDevices` checks,
+before reporting the lane as supported.
+
 ## Match the VM to the project
 
 Before running project work, detect what the project needs and provision the
@@ -163,19 +186,20 @@ Run an XCUITest:
 Omit `-destination` to use the first available iPhone simulator. Pass an
 explicit destination for macOS tests or when device choice matters.
 
-Signing is handled automatically: the VM has no signing identities, so when
-no `CODE_SIGN*`, `DEVELOPMENT_TEAM`, or `PROVISIONING_PROFILE*` argument is
-supplied, the guest applies ad-hoc manual signing with entitlements dropped —
-the only recipe that can work there (verified: macOS UI tests pass with no
-signing arguments at all). Pass any signing argument to take full manual
-control. Never pass `CODE_SIGNING_ALLOWED=NO` for UI tests — the unsigned
-test runner hangs before connecting.
+Signing is handled automatically on the credential-free path: the VM has no
+signing identities, so when no `CODE_SIGN*`, `DEVELOPMENT_TEAM`, or
+`PROVISIONING_PROFILE*` argument is supplied, the guest applies ad-hoc manual
+signing with entitlements dropped (verified: macOS UI tests pass with no
+signing arguments). Passing signing arguments only disables that fallback; it
+does not expose host identities to the guest. Never pass
+`CODE_SIGNING_ALLOWED=NO` for UI tests — the unsigned test runner hangs before
+connecting.
 
-One limit remains: tests that genuinely require profile-backed entitlements
-(data-protection keychain, app groups, auth flows) cannot pass with ad-hoc
-signing. Exclude them with `-only-testing:`/`-skip-testing:` and say so in
-the report rather than reporting a false failure — projects often document
-which suites need real signing in their CI or verify scripts.
+Ad-hoc signing cannot authorize profile-backed entitlements. Until the
+host-signing round-trip above is implemented and proven for the project,
+exclude those tests with `-only-testing:`/`-skip-testing:` and say so in the
+report rather than reporting a false failure. Never copy a Developer ID
+identity into the VM as a shortcut.
 
 Report the printed result directory and exit status. Inspect `command.log` or
 `xcodebuild.log`; use `xcrun xcresulttool` against `Result.xcresult` for

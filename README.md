@@ -13,8 +13,9 @@ the tests" takes over your screen mid-task.
 This plugin gives your agent a VM instead. Once installed, asking Claude or
 Codex to run tests routes UI and simulator work into an isolated VM
 automatically — no prompting, no host takeover. Builds run there too when you
-want a clean room: nothing touches your host toolchain, caches, or keychain,
-and every run starts from the same pristine image.
+want a clean room: the default credential-free path does not touch your host
+toolchain, caches, or keychain, and every run starts from the same pristine
+image.
 
 ## How it works
 
@@ -80,6 +81,104 @@ RUNNER=skills/tart-xcode-runner/references/tart-runner
 Each run prints its results directory containing `xcodebuild.log` (or
 `command.log`), `Result.xcresult`, and the exit status.
 
+## Profile-backed entitlements
+
+The current runner does not automate host signing. Do not create or export a
+Developer ID identity solely for this runner until the build/sign/return lane
+below has been implemented and proven for the project.
+
+The default VM path uses ad-hoc signing and needs no Apple credentials. A test
+that exercises a restricted entitlement such as Keychain Sharing instead
+needs a host-side [Developer ID Application
+identity](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/)
+and a matching Developer ID provisioning profile.
+
+This is a team signing identity, not a per-VM certificate. Developer ID
+profiles use `ProvisionsAllDevices`, so the VM needs neither an Apple Account
+nor device registration and does not consume one of the team's 100 development
+device slots. One identity can sign build products from many apps and VM runs;
+create one profile for each signed bundle ID that uses restricted entitlements.
+A Developer ID Installer identity is unnecessary unless you also produce a
+`.pkg`.
+
+### Set up the first signing host
+
+1. Inventory the team's existing Developer ID Application certificates before
+   creating another; a team can have up to five. Reuse one only when the host
+   is already approved for release signing. Otherwise, consider a dedicated
+   VM-test certificate if the extra active key and certificate slot fit the
+   team's custody policy.
+2. On the intended signing host, use Keychain Access **Certificate Assistant >
+   Request a Certificate From a Certificate Authority** to create the CSR.
+   This creates the private key on that host. Have the Account Holder create
+   the Developer ID Application certificate from that CSR, download the
+   `.cer` to the same host, and open it. The certificate and matching private
+   key together are the signing identity; the `.cer` alone cannot sign.
+3. In Certificates, Identifiers & Profiles, register an explicit App ID and
+   enable the required Developer-ID-supported capabilities. Create a
+   **Distribution > Developer ID** profile selecting that App ID and
+   certificate, then download the profile to the signing host. Repeat only
+   for other entitlement-bearing bundle IDs.
+4. Confirm the identity is present with
+   `security find-identity -v -p codesigning`. Configure the host Keychain
+   according to team policy, then prove that the actual runner context can
+   sign and verify a disposable test bundle noninteractively. Do not grant
+   private-key access to all applications.
+
+Keep the private key on signing hosts. Never put it, a `.p12`, its password,
+Apple credentials, or an API key in a Tart VM, golden image, repository,
+guest share, or test artifact.
+
+### Add another signing host
+
+Choose one of these models:
+
+- **Share the identity through 1Password.** In Keychain Access **My
+  Certificates**, export the identity as a strongly encrypted `.p12`; this
+  file contains both the certificate and private key. Store it as a Document
+  or attachment in a tightly restricted 1Password vault. The vault is the
+  security boundary if its import password is stored in the same item; use a
+  separately controlled vault or channel when independent protection is
+  required. On the other host, download and import it into a controlled
+  Keychain, verify it with a noninteractive signing probe, then delete the
+  downloaded file. This uses no additional certificate slot and the same
+  provisioning profile can be copied or downloaded, but compromise or
+  revocation affects every host sharing that key. See [1Password's file
+  storage guidance](https://support.1password.com/files/).
+- **Use a separate identity.** Create the CSR on the other host and issue
+  another Developer ID Application certificate. This consumes another of the
+  team's five slots and needs a profile that authorizes that certificate, but
+  keeps the private keys and revocation boundary separate.
+
+1Password is one approved backup and transfer mechanism; `codesign` uses the
+identity after it has been imported into the host Keychain. Do not download
+the `.p12` for every test run or copy it into a disposable VM.
+
+### Test flow
+
+The lane to implement and prove is:
+
+1. Run `xcodebuild build-for-testing` in a disposable guest while preserving
+   enough build metadata to reconstruct each product's fully expanded
+   entitlements.
+2. Move the build products to the host, embed the matching profile at
+   `<bundle>/Contents/embedded.provisionprofile` for every product that needs
+   one, and sign all nested code inside-out with the Developer ID Application
+   identity and each product's explicit entitlements. Never use
+   `codesign --deep`.
+3. Return the signed products to the same guest clone and run
+   `xcodebuild test-without-building`.
+
+The existing guest helper clears `CODE_SIGN_ENTITLEMENTS`, so simply embedding
+a profile and re-signing the current output is insufficient. The future lane
+must preserve or reconstruct the expanded entitlements and pass them explicitly
+when signing.
+
+Before relying on it, prove one real entitlement-dependent XCTest end to end:
+verify strict signatures, compare `codesign -d --entitlements :-` output with
+the embedded profile, confirm `ProvisionsAllDevices`, and exercise the
+protected operation through an app relaunch.
+
 ## Image configs
 
 Golden images are reconstructed from checked-in JSON contracts, so any machine
@@ -110,7 +209,8 @@ From a source checkout, VM disks and results live in Git-ignored directories
 they live under `~/Library/Application Support/Tart Xcode Runner/` and survive
 plugin upgrades. Override with `TART_XCUI_DATA_HOME` (everything) or
 `TART_XCUI_TART_HOME` (VM disks only). No setup path requires interactive
-input.
+input during normal runs; Developer ID enrollment and the first Keychain
+authorization are deliberate one-time exceptions.
 
 ## License
 
