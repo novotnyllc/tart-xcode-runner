@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>org.openai.tart-guest-daemon</string>
+  <key>ProgramArguments</key>
+  <array><string>/usr/local/bin/tart-guest-agent</string><string>--run-daemon</string></array>
+  <key>EnvironmentVariables</key>
+  <dict><key>PATH</key><string>/bin:/usr/bin:/usr/sbin:/usr/local/bin</string></dict>
+  <key>WorkingDirectory</key><string>/var/empty</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+</dict>
+</plist>

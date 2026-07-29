@@ -1,0 +1,34 @@
+{
+  "name": "macos-27-beta4-xcode-27-beta4",
+  "buildStrategy": "upgrade",
+  "macOSVersion": "27.0",
+  "macOSBuild": "26A5388g",
+  "ipsw": "https://updates.cdn-apple.com/2026SummerSeed/fullrestores/140-55718/5809AFC6-1923-4590-AAFC-904A0283E659/UniversalMac_27.0_26A5388g_Restore.ipsw",
+  "installAssistant": "https://swcdn.apple.com/content/downloads/47/53/140-56045-A_TA7QL72HVB/516mlhvc2065w9kah1p2zp8jhq5i2ernnm/InstallAssistant.pkg",
+  "installAssistantSHA1": "93b30a11792e5e7d941d76a1fb7f0c08054b98ff",
+  "seedImage": "ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6",
+  "xcodeVersion": "27.0",
+  "xcodeBuild": "27A5228h",
+  "xcodeApp": "/Applications/Xcode-beta.app",
+  "sdks": [
+    "driverkit27.0",
+    "iphoneos27.0",
+    "iphonesimulator27.0",
+    "macosx27.0",
+    "appletvos27.0",
+    "appletvsimulator27.0",
+    "xros27.0",
+    "xrsimulator27.0",
+    "watchos27.0",
+    "watchsimulator27.0"
+  ],
+  "platforms": [
+    "iOS"
+  ],
+  "components": [
+    "MetalToolchain"
+  ],
+  "cpu": 8,
+  "memoryGB": 16,
+  "diskGB": 200
+}

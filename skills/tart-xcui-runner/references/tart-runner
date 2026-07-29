@@ -1,0 +1,364 @@
+#!/bin/zsh
+set -eu
+[[ ${TART_XCUI_TRACE:-0} == 1 ]] && set -x
+
+SCRIPT=${0:A}
+REFERENCES=${SCRIPT:h}
+ROOT=${REFERENCES:h:h:h}
+export TART_HOME=${TART_XCUI_TART_HOME:-"$ROOT/.tart"}
+
+BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
+CANDIDATE_VM=${TART_XCUI_CANDIDATE_VM:-tart-xcui-candidate}
+PREVIOUS_VM=${TART_XCUI_PREVIOUS_VM:-tart-xcui-base-previous}
+WORK_VM=${TART_XCUI_WORK_VM:-tart-xcui-run}
+IMAGE=${TART_XCUI_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6}
+CPU=${TART_XCUI_CPU:-8}
+MEMORY=${TART_XCUI_MEMORY:-24576}
+DISK_SIZE=${TART_XCUI_DISK_SIZE:-150}
+READY_TIMEOUT=${TART_XCUI_READY_TIMEOUT:-300}
+RUN_TIMEOUT=${TART_XCUI_RUN_TIMEOUT:-7200}
+GUEST_PASSWORD=${TART_XCUI_GUEST_PASSWORD:-admin}
+RESULTS=${TART_XCUI_RESULTS:-"$ROOT/results"}
+STATE="$ROOT/.state"
+LOCK="$STATE/runner.lock"
+RUN_RESULT_DIR=
+RUN_TART_LOG=
+RUN_EXIT_CODE=1
+
+usage() {
+  cat <<'EOF'
+Usage:
+  tart-runner doctor
+  tart-runner prepare [--replace] [OCI_OR_LOCAL_IMAGE]
+  tart-runner add-platform PLATFORM...
+  tart-runner add-component MetalToolchain
+  tart-runner run [--repo PATH] -- COMMAND...
+  tart-runner build --repo PATH -- XCODEBUILD_ARGS...
+  tart-runner xcui-test --repo PATH -- XCODEBUILD_ARGS...
+  tart-runner smoke
+  tart-runner reset
+  tart-runner rollback
+
+Environment:
+  TART_XCUI_TART_HOME, TART_XCUI_IMAGE, TART_XCUI_CPU,
+  TART_XCUI_MEMORY, TART_XCUI_DISK_SIZE, TART_XCUI_RUN_TIMEOUT,
+  TART_XCUI_RESULTS, TART_XCUI_KEEP_FAILED=1
+EOF
+}
+
+die() {
+  print -u2 -- "error: $*"
+  exit 1
+}
+
+prepare_dirs() {
+  mkdir -p "$TART_HOME" "$RESULTS" "$STATE"
+}
+
+need_tart() {
+  command -v tart >/dev/null ||
+    die "Tart is missing; run: brew tap openai/tools && brew trust --tap openai/tools && brew install openai/tools/tart"
+}
+
+vm_exists() {
+  tart list --source local -q | grep -Fqx -- "$1"
+}
+
+stop_vm() {
+  local vm=$1
+  vm_exists "$vm" || return 0
+  tart stop "$vm" --timeout 30 >/dev/null 2>&1 || true
+}
+
+delete_vm() {
+  local vm=$1
+  vm_exists "$vm" || return 0
+  tart delete "$vm"
+}
+
+wait_for_agent() {
+  local vm=$1
+  local deadline=$((SECONDS + READY_TIMEOUT))
+
+  until tart exec "$vm" /usr/bin/true >/dev/null 2>&1; do
+    (( SECONDS < deadline )) || return 1
+    sleep 2
+  done
+}
+
+promote_candidate() {
+  local candidate=$1
+  stop_vm "$candidate"
+  stop_vm "$BASE_VM"
+  delete_vm "$PREVIOUS_VM"
+  if vm_exists "$BASE_VM"; then
+    tart clone "$BASE_VM" "$PREVIOUS_VM"
+    delete_vm "$BASE_VM"
+  fi
+  if ! tart clone "$candidate" "$BASE_VM"; then
+    vm_exists "$PREVIOUS_VM" && tart clone "$PREVIOUS_VM" "$BASE_VM"
+    die "promotion failed; restored $BASE_VM from $PREVIOUS_VM"
+  fi
+}
+
+doctor() {
+  local failed=0
+  prepare_dirs
+
+  [[ $(uname -m) == arm64 ]] && print "host:       arm64" || {
+    print "host:       unsupported ($(uname -m))"
+    failed=1
+  }
+  command -v tart >/dev/null && print "tart:       $(tart --version)" || {
+    print "tart:       missing"
+    failed=1
+  }
+  print "TART_HOME:  $TART_HOME"
+  df -h "$TART_HOME" | tail -1
+  command -v tart >/dev/null && vm_exists "$BASE_VM" &&
+    print "base VM:    $BASE_VM (ready)" || {
+      print "base VM:    $BASE_VM (missing; run prepare)"
+      failed=1
+    }
+  security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 &&
+    print "keychain:   login keychain available" ||
+    print "keychain:   WARNING: unlock login.keychain before headless VM starts"
+  return "$failed"
+}
+
+prepare_base() {
+  local replace=0 image=$IMAGE run_pid
+  [[ ${1:-} == --replace ]] && {
+    replace=1
+    shift
+  }
+  [[ $# -le 1 ]] || die "prepare accepts at most one OCI or local image"
+  [[ $# -eq 0 ]] || image=$1
+
+  prepare_dirs
+  need_tart
+  if vm_exists "$BASE_VM" && (( ! replace )); then
+    print "Base VM already exists: $BASE_VM"
+    return 0
+  fi
+
+  stop_vm "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  print "Cloning candidate from $image"
+  tart clone "$image" "$CANDIDATE_VM"
+  tart set "$CANDIDATE_VM" --cpu "$CPU" --memory "$MEMORY" --disk-size "$DISK_SIZE"
+  trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
+  tart run --no-graphics "$CANDIDATE_VM" >"$STATE/prepare.log" 2>&1 &
+  run_pid=$!
+  print "Waiting for the guest agent..."
+  wait_for_agent "$CANDIDATE_VM" "$run_pid" ||
+    die "candidate failed to start; see $STATE/prepare.log"
+  tart exec "$CANDIDATE_VM" /bin/zsh -lc '
+    set -e
+    /usr/bin/xcodebuild -version
+    /usr/bin/xcodebuild -checkFirstLaunchStatus
+    /usr/bin/xcrun -f clang >/dev/null
+    /usr/bin/xcrun -f metal >/dev/null
+    /usr/bin/xcrun simctl list runtimes available | /usr/bin/grep -q iOS
+    test "$(/usr/bin/stat -f %Su /dev/console)" != root
+    login_user=$(/usr/bin/defaults read /Library/Preferences/com.apple.loginwindow autoLoginUser)
+    test -n "$login_user"
+    test "$login_user" != root
+    test "$(/usr/bin/defaults -currentHost read com.apple.screensaver idleTime)" = 0
+  '
+  stop_vm "$CANDIDATE_VM"
+  trap - EXIT INT TERM HUP
+
+  promote_candidate "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  print "Ready: $BASE_VM"
+}
+
+add_xcode_items() {
+  local kind=$1 run_pid item log_name
+  shift
+  (( $# > 0 )) || die "add-$kind requires at least one value"
+  vm_exists "$BASE_VM" || die "base VM is missing; run prepare"
+  for item in "$@"; do
+    if [[ $kind == platform ]]; then
+      [[ $item == iOS || $item == tvOS || $item == watchOS || $item == visionOS ]] ||
+        die "unsupported platform: $item"
+    else
+      [[ $item == MetalToolchain ]] || die "unsupported component: $item"
+    fi
+  done
+
+  log_name="add-$kind.log"
+  stop_vm "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  tart clone "$BASE_VM" "$CANDIDATE_VM"
+  trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
+  tart run --no-graphics "$CANDIDATE_VM" >"$STATE/$log_name" 2>&1 &
+  run_pid=$!
+  wait_for_agent "$CANDIDATE_VM" "$run_pid" ||
+    die "candidate failed to start; see $STATE/$log_name"
+  for item in "$@"; do
+    print "Installing $item..."
+    if [[ $kind == platform ]]; then
+      tart exec "$CANDIDATE_VM" /bin/zsh -c \
+        'print -r -- "$1" | /usr/bin/sudo -S /usr/bin/xcodebuild -downloadPlatform "$2"' \
+        -- "$GUEST_PASSWORD" "$item"
+      tart exec "$CANDIDATE_VM" /bin/zsh -lc \
+        "/usr/bin/xcrun simctl list runtimes available | /usr/bin/grep -Fq '$item'"
+    else
+      tart exec "$CANDIDATE_VM" /bin/zsh -c \
+        'print -r -- "$1" | /usr/bin/sudo -S /usr/bin/xcodebuild -downloadComponent "$2"' \
+        -- "$GUEST_PASSWORD" "$item"
+      tart exec "$CANDIDATE_VM" /usr/bin/xcrun -f metal >/dev/null
+    fi
+  done
+  stop_vm "$CANDIDATE_VM"
+  trap - EXIT INT TERM HUP
+
+  promote_candidate "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  print "Updated: $BASE_VM"
+}
+
+cleanup_work_vm() {
+  stop_vm "$WORK_VM"
+  [[ -n $RUN_RESULT_DIR && -f $RUN_TART_LOG ]] &&
+    cp "$RUN_TART_LOG" "$RUN_RESULT_DIR/tart.log"
+  if (( RUN_EXIT_CODE != 0 )) && [[ ${TART_XCUI_KEEP_FAILED:-0} == 1 ]]; then
+    print -u2 -- "Failed VM retained for inspection: $WORK_VM"
+  else
+    delete_vm "$WORK_VM"
+  fi
+}
+
+run_locked() {
+  local kind=$1 repo= has_repo=0 helper log_name run_id result_dir
+  local run_pid watchdog exit_code
+  shift
+
+  [[ ${1:-} == --repo ]] && {
+    [[ $# -ge 2 ]] || die "--repo requires a path"
+    repo=${2:A}
+    has_repo=1
+    shift 2
+  }
+  [[ ${1:-} == -- ]] || die "separate command arguments with --"
+  shift
+  [[ $# -gt 0 ]] || die "no command arguments supplied"
+  (( has_repo == 0 )) || [[ -d $repo ]] || die "repository does not exist: $repo"
+  [[ $kind == command || $has_repo == 1 ]] || die "$kind requires --repo PATH"
+  vm_exists "$BASE_VM" || die "base VM is missing; run prepare"
+
+  stop_vm "$WORK_VM"
+  delete_vm "$WORK_VM"
+  run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  result_dir="$RESULTS/$run_id"
+  mkdir -p "$result_dir"
+  RUN_RESULT_DIR=$result_dir
+  RUN_TART_LOG="$STATE/$run_id.tart.log"
+  if [[ $kind == command ]]; then
+    helper=run-command.sh
+    log_name=command.log
+  else
+    helper=run-xcode.sh
+    log_name=xcodebuild.log
+  fi
+  cp "$REFERENCES/$helper" "$result_dir/$helper"
+  print "results: $result_dir"
+
+  tart clone "$BASE_VM" "$WORK_VM"
+  trap 'RUN_EXIT_CODE=130; cleanup_work_vm; exit 130' INT TERM HUP
+  local run_args=(--no-graphics --dir="artifacts:$result_dir")
+  (( has_repo == 0 )) || run_args+=(--dir="source:${repo}:ro")
+  tart run "${run_args[@]}" "$WORK_VM" >"$RUN_TART_LOG" 2>&1 &
+  run_pid=$!
+  wait_for_agent "$WORK_VM" "$run_pid" ||
+    die "working VM failed to start; see $RUN_TART_LOG"
+
+  (
+    sleep "$RUN_TIMEOUT"
+    print -u2 -- "run timed out after ${RUN_TIMEOUT}s"
+    tart stop "$WORK_VM" --timeout 10 >/dev/null 2>&1 || true
+  ) >>"$RUN_TART_LOG" 2>&1 &
+  watchdog=$!
+
+  set +e
+  if [[ $kind == command ]]; then
+    tart exec "$WORK_VM" /bin/zsh \
+      "/Volumes/My Shared Files/artifacts/$helper" "$run_id" "$has_repo" "$@" \
+      2>&1 | tee "$result_dir/$log_name"
+  else
+    tart exec "$WORK_VM" /bin/zsh \
+      "/Volumes/My Shared Files/artifacts/$helper" "$run_id" "$kind" "$@" \
+      2>&1 | tee "$result_dir/$log_name"
+  fi
+  exit_code=${pipestatus[1]}
+  set -e
+
+  kill "$watchdog" >/dev/null 2>&1 || true
+  wait "$watchdog" >/dev/null 2>&1 || true
+  stop_vm "$WORK_VM"
+  wait "$run_pid" >/dev/null 2>&1 || true
+  print "$exit_code" >"$result_dir/exit-status"
+  [[ -d "$result_dir/Result.xcresult" ]] &&
+    print "xcresult: $result_dir/Result.xcresult"
+  RUN_EXIT_CODE=$exit_code
+  cleanup_work_vm
+  trap - INT TERM HUP
+  return "$exit_code"
+}
+
+reset_locked() {
+  stop_vm "$WORK_VM"
+  delete_vm "$WORK_VM"
+  stop_vm "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  print "Disposable VM state reset; base preserved: $BASE_VM"
+}
+
+rollback_locked() {
+  vm_exists "$PREVIOUS_VM" || die "no previous golden image is available"
+  stop_vm "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  tart clone "$PREVIOUS_VM" "$CANDIDATE_VM"
+  promote_candidate "$CANDIDATE_VM"
+  delete_vm "$CANDIDATE_VM"
+  print "Rolled back $BASE_VM; the replaced image is now $PREVIOUS_VM"
+}
+
+locked() {
+  local action=$1 exit_code
+  shift
+  prepare_dirs
+  need_tart
+  set +e
+  /usr/bin/lockf -t 0 "$LOCK" "$SCRIPT" "_$action" "$@"
+  exit_code=$?
+  set -e
+  (( exit_code == 0 )) ||
+    print -u2 -- "runner is busy or the operation failed"
+  return "$exit_code"
+}
+
+case ${1:-help} in
+  doctor) doctor ;;
+  prepare) shift; locked prepare "$@" ;;
+  add-platform) shift; locked add-xcode platform "$@" ;;
+  add-component) shift; locked add-xcode component "$@" ;;
+  run) shift; locked run command "$@" ;;
+  build) shift; locked run build "$@" ;;
+  xcui-test|test) shift; locked run xcui-test "$@" ;;
+  smoke)
+    locked run xcui-test --repo "$ROOT/fixtures/SmokeApp" -- \
+      -project SmokeApp.xcodeproj -scheme SmokeApp test
+    ;;
+  reset) locked reset ;;
+  rollback) locked rollback ;;
+  _prepare) shift; prepare_base "$@" ;;
+  _add-xcode) shift; add_xcode_items "$@" ;;
+  _run) shift; run_locked "$@" ;;
+  _reset) reset_locked ;;
+  _rollback) rollback_locked ;;
+  help|-h|--help) usage ;;
+  *) usage; die "unknown command: $1" ;;
+esac

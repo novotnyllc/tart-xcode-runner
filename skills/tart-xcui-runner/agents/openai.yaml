@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tart macOS Runner"
+  short_description: "Run commands, builds, and XCUITests in Tart"
+  default_prompt: "Use $tart-xcui-runner to run this command, build, or UI test in a disposable Tart VM and return its results."

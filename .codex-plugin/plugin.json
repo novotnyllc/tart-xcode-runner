@@ -1,0 +1,18 @@
+{
+  "name": "tart",
+  "version": "0.1.0",
+  "description": "Run commands, Xcode builds, and XCUITests in disposable Tart VMs.",
+  "author": {
+    "name": "Claire"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Tart Runner",
+    "shortDescription": "Isolated macOS builds and UI tests",
+    "longDescription": "Creates reusable Tart base images and disposable macOS runners for commands, Xcode builds, and XCUITests.",
+    "developerName": "Claire",
+    "category": "Developer Tools",
+    "capabilities": [],
+    "defaultPrompt": "Use Tart to run this command, build, or UI test in an isolated macOS VM."
+  }
+}

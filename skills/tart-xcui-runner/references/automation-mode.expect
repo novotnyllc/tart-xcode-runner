@@ -1,0 +1,7 @@
+#!/usr/bin/expect -f
+set user [lindex $argv 0]
+set password [lindex $argv 1]
+spawn automationmodetool enable-automationmode-without-authentication
+expect "Enter the password for user '$user':"
+send "$password\n"
+expect "succeeded."

@@ -1,0 +1,68 @@
+diff --git a/builder/tart/vnc.go b/builder/tart/vnc.go
+index 3d57070..ff493d0 100644
+--- a/builder/tart/vnc.go
++++ b/builder/tart/vnc.go
+@@ -107,22 +107,39 @@ func (d *customDriver) SendKey(key rune, action bootcommand.KeyAction) error {
+ 		d.clickString.Reset()
+ 
+ 		var rectangle *image.Rectangle
++		var centerX, centerY int
+ 
+-		for {
+-			fmt.Fprintf(os.Stderr, "🔎 Looking for '%s'...\n", clickString)
+-
+-			rectangle = FindTextCoordinates(d.frameBuffer, clickString)
+-			if rectangle != nil {
+-				break
++		if strings.HasPrefix(clickString, "@") {
++			var xRatio, yRatio float64
++			if _, err := fmt.Sscanf(clickString, "@%f,%f", &xRatio, &yRatio); err != nil {
++				return fmt.Errorf("invalid click coordinates %q: %w", clickString, err)
++			}
++			if xRatio < 0 || xRatio > 1 || yRatio < 0 || yRatio > 1 {
++				return fmt.Errorf("click coordinates must be ratios from 0 to 1: %q", clickString)
+ 			}
++			centerX = int(float64(d.vncClient.FrameBufferWidth) * xRatio)
++			centerY = int(float64(d.vncClient.FrameBufferHeight) * yRatio)
++		} else {
++			deadline := time.Now().Add(3 * time.Minute)
++			for {
++				fmt.Fprintf(os.Stderr, "🔎 Looking for '%s'...\n", clickString)
++				if time.Now().After(deadline) {
++					return fmt.Errorf("timed out waiting to click %q", clickString)
++				}
+ 
+-			if err := d.WaitForFramebufferUpdate(); err != nil {
+-				return err
++				rectangle = FindTextCoordinates(d.frameBuffer, clickString)
++				if rectangle != nil {
++					break
++				}
++
++				if err := d.WaitForFramebufferUpdate(); err != nil {
++					return err
++				}
+ 			}
+-		}
+ 
+-		centerX := (rectangle.Min.X + rectangle.Max.X) / 2
+-		centerY := (rectangle.Min.Y + rectangle.Max.Y) / 2
++			centerX = (rectangle.Min.X + rectangle.Max.X) / 2
++			centerY = (rectangle.Min.Y + rectangle.Max.Y) / 2
++		}
+ 
+ 		fmt.Fprintf(os.Stderr, "🖱️ Clicking at '%s's center (%d, %d) ...\n",
+ 			clickString, centerX, centerY)
+diff --git a/version/version.go b/version/version.go
+index 0c6f66b..bbb9cc7 100644
+--- a/version/version.go
++++ b/version/version.go
+@@ -7,7 +7,7 @@ import (
+ var (
+ 	// Version is the main version number that is being run at the moment.
+-	Version = "" // Will be set when building
++	Version = "1.21.0"
+ 
+ 	// PluginVersion is used by the plugin set to allow Packer to recognize
+ 	// what version this plugin is.
+ 	PluginVersion = version.NewRawVersion(Version)

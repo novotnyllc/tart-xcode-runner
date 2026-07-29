@@ -1,0 +1,8 @@
+/.state/
+/vm-share/
+/.tart/
+/results/
+/.packer.d/
+/cache/
+*.xip
+*.zip
