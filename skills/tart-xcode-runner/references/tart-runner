@@ -48,6 +48,7 @@ Usage:
   tart-runner xcui-test --repo PATH -- XCODEBUILD_ARGS...
   tart-runner smoke
   tart-runner reset
+  tart-runner clean [--results DAYS] [--images]
   tart-runner rollback
 
 Runs may execute in parallel; each uses its own disposable clone. Image
@@ -386,6 +387,36 @@ reset_cmd() {
   print "Disposable VM state reset; base preserved: $BASE_VM"
 }
 
+clean_cmd() {
+  local results_days= images=0 cache_days=30
+  while (( $# )); do
+    case $1 in
+      --results) [[ ${2:-} == <-> ]] || die "--results requires DAYS"; results_days=$2; shift 2 ;;
+      --images) images=1; shift ;;
+      *) die "unknown clean argument: $1" ;;
+    esac
+  done
+
+  reset_cmd
+  rm -f "$STATE"/*.log(N) "$STATE"/*.tart.log(N)
+  print "clean: removed state logs"
+  tart prune --entries caches --older-than "$cache_days" || true
+  print "clean: pruned OCI/IPSW caches not used in $cache_days days"
+  if [[ -n $results_days ]]; then
+    find "$RESULTS" -mindepth 1 -maxdepth 1 -type d -mtime +"$results_days" \
+      -exec rm -rf {} + 2>/dev/null || true
+    print "clean: removed results older than $results_days days"
+  fi
+  if (( images )); then
+    stop_vm "$PREVIOUS_VM"
+    delete_vm "$PREVIOUS_VM"
+    rm -rf "$DATA_HOME/vm-share/cache"/*(N) 2>/dev/null || true
+    print "clean: removed rollback image $PREVIOUS_VM and installer archives"
+    print "clean: next rollback is unavailable until the next promotion"
+  fi
+  df -h "$TART_HOME" | tail -1
+}
+
 rollback_cmd() {
   vm_exists "$PREVIOUS_VM" || die "no previous golden image is available"
   stop_vm "$CANDIDATE_VM"
@@ -419,6 +450,7 @@ case ${1:-help} in
       -project SmokeApp.xcodeproj -scheme SmokeApp test
     ;;
   reset) shift 2>/dev/null || true; exclusive reset_cmd ;;
+  clean) shift; exclusive clean_cmd "$@" ;;
   rollback) shift 2>/dev/null || true; exclusive rollback_cmd ;;
   help|-h|--help) usage ;;
   *) usage; die "unknown command: $1" ;;

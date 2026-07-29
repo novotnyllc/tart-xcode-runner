@@ -222,6 +222,47 @@ Pair the variable with the project's pinned `.tart-xcode/image.json` so the
 same shell sets both. The default base (`tart-xcui-base`) stays for
 single-image setups.
 
+## Cleanup
+
+Disk grows in four places: OCI/IPSW caches under `TART_HOME/cache` (tens of
+GB), the rollback image (`<base>-previous`, as big as the base), installer
+and Xcode archives in `vm-share/cache`, and per-run logs/results. Reclaim
+space with:
+
+```sh
+"$RUNNER" clean                 # stale VMs, state logs, caches unused 30 days
+"$RUNNER" clean --results 14    # also drop result bundles older than 14 days
+"$RUNNER" clean --images        # also drop the rollback image and archives
+```
+
+`clean` is exclusive (refuses while runs are active) and never touches the
+golden base. `--images` trades safety for space: rollback becomes
+unavailable until the next promotion, and a future rebuild re-downloads
+installers. Suggest `clean` to the user when `doctor` shows the disk running
+low; ask before using `--images`.
+
+## Configuration reference
+
+All knobs are environment variables; defaults in parentheses:
+
+- `TART_XCUI_DATA_HOME` — root for all mutable data (checkout, or
+  `~/Library/Application Support/Tart Xcode Runner`)
+- `TART_XCUI_TART_HOME` — VM disk storage only (`$DATA_HOME/.tart`)
+- `TART_XCUI_RESULTS` — result bundles (`$DATA_HOME/results`)
+- `TART_XCUI_BASE_VM` — golden image to use (`tart-xcui-base`); derived:
+  `<base>-candidate`, `<base>-previous`, `<base>-packed`
+- `TART_XCUI_IMAGE_CONFIG` — default config for `rebuild`
+  (`config/image-26.5.json`)
+- `TART_XCUI_CPU`, `TART_XCUI_MEMORY` (MB), `TART_XCUI_DISK_SIZE` (GB) —
+  resources applied by `prepare` when the config doesn't set them
+  (8 / 24576 / 150); config values win on rebuilds
+- `TART_XCUI_RUN_TIMEOUT` — per-run watchdog seconds (7200)
+- `TART_XCUI_READY_TIMEOUT` — VM boot wait seconds (300)
+- `TART_XCUI_PACKER_TIMEOUT`, `TART_XCUI_UPGRADE_TIMEOUT` — image build
+  ceilings (3600 / 7200)
+- `TART_XCUI_KEEP_FAILED=1` — retain a failed run's VM for inspection
+- `TART_XCUI_GUEST_PASSWORD` — guest admin password (`admin`)
+
 ## Storage
 
 From a source checkout, VM disks and mutable data stay in its Git-ignored
