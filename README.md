@@ -1,8 +1,15 @@
 # Tart Xcode Runner
 
-Codex plugin for running isolated commands, Xcode builds, and XCUITests in
-reusable Tart macOS VMs. The powered-off `tart-xcui-base` VM is the golden image;
+Codex and Claude Code plugin for running isolated commands, Xcode builds, and
+XCUITests in reusable Tart macOS VMs. The powered-off `tart-xcui-base` VM is the golden image;
 `tart-xcui-base-previous` is the rollback image.
+
+Install in Claude Code (via the [novotnyllc marketplace](https://github.com/novotnyllc/marketplace)):
+
+```sh
+claude plugin marketplace add novotnyllc/marketplace
+claude plugin install tart-xcode-runner@novotnyllc
+```
 
 ```sh
 RUNNER=skills/tart-xcode-runner/references/tart-runner

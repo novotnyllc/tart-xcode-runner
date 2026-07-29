@@ -1,0 +1,14 @@
+{
+  "name": "tart-xcode-runner",
+  "owner": {
+    "name": "Claire Novotny LLC",
+    "url": "https://github.com/novotnyllc"
+  },
+  "plugins": [
+    {
+      "name": "tart-xcode-runner",
+      "source": "./",
+      "description": "Run isolated Xcode builds and XCUITests in reusable, resettable Tart macOS VMs."
+    }
+  ]
+}

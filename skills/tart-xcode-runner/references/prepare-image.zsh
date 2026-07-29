@@ -121,8 +121,9 @@ delete_vm() {
 }
 
 wait_for_agent() {
-  local vm=$1 deadline=$((SECONDS + READY_TIMEOUT))
+  local vm=$1 run_pid=${2:-} deadline=$((SECONDS + READY_TIMEOUT))
   until tart exec "$vm" /usr/bin/true >/dev/null 2>&1; do
+    [[ -z $run_pid ]] || kill -0 "$run_pid" 2>/dev/null || return 1
     (( SECONDS < deadline )) || return 1
     sleep 5
   done

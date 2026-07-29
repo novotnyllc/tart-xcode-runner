@@ -1,15 +1,22 @@
 ---
 name: tart-xcode-runner
-description: Run commands, Xcode builds, and XCUITests in reusable Tart VMs. Use when Apple-platform work must run off-host, or to prepare, reset, roll back, and collect results from a test VM.
+description: Run any command, build, or test in a disposable macOS virtual machine (Tart). Use whenever the user wants work run in a VM, sandbox, container, clean room, or fresh/isolated/ephemeral/disposable environment, off-host, "not on my machine", or without polluting their system — especially xcodebuild, Xcode builds, unit tests, UI tests, XCUITests, iOS/macOS/simulator work, or trying something risky safely. ALWAYS use this by default for UI tests, XCUITests, and simulator-based test runs — even when the user doesn't mention a VM — because host UI automation steals their screen, keyboard, and focus. Also use to prepare, update, reset, roll back, or fetch logs and xcresult bundles from the test VM.
 ---
 
 # Tart Xcode Runner
 
-Run commands from the plugin repository root. Set:
+UI tests, XCUITests, and simulator test runs go in the VM by default, without
+being asked: on the host they seize the user's display, keyboard, and focus
+while they work. Run them on the host only if the user explicitly insists
+after being warned.
+
+`CLAUDE_PLUGIN_ROOT` is set when this runs as an installed Claude Code plugin;
+from a source checkout, run commands at the repository root instead. Set:
 
 ```sh
-RUNNER=skills/tart-xcode-runner/references/tart-runner
-IMAGE_BUILDER=skills/tart-xcode-runner/references/prepare-image.zsh
+PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-.}
+RUNNER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/tart-runner
+IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
 ```
 
 ## Setup
@@ -56,7 +63,7 @@ IMAGE_BUILDER=skills/tart-xcode-runner/references/prepare-image.zsh
    - Exact macOS/Xcode beta with a restore IPSW and local Xcode app:
 
      ```sh
-     "$IMAGE_BUILDER" packer --config config/image.json
+     "$IMAGE_BUILDER" packer --config "$PLUGIN_ROOT/config/image.json"
      ```
 
      This from-IPSW path is also unattended and bounded by
@@ -91,6 +98,34 @@ For a durable, reconstructible change, also add the platform to
 The golden base also selects Xcode's CLI tools, completes first-launch tasks,
 accepts the license, installs the Metal toolchain, enables auto-login, and
 disables sleep, screensavers, and screen locking.
+
+## Match the VM to the project
+
+Before running project work, detect what the project needs and provision the
+VM to match — never ask the user to do this manually:
+
+1. Inspect the checkout on the host: `SDKROOT`, destinations, and platform
+   names in `*.pbxproj`, schemes, and `Package.swift`
+   (`appletvos`/`tvOS` → tvOS, `watchos` → watchOS, `xros`/`visionOS` →
+   visionOS; Metal shader compilation → MetalToolchain). iOS and macOS are
+   always present in the base image.
+2. If extra platforms are needed, check what the VM already has:
+
+   ```sh
+   "$RUNNER" run -- /usr/bin/xcrun simctl list runtimes available
+   ```
+
+3. Install anything missing, then proceed:
+
+   ```sh
+   "$RUNNER" add-platform tvOS
+   "$RUNNER" add-component MetalToolchain
+   ```
+
+If a run still fails with a missing-runtime or missing-SDK error, install the
+named platform the same way and retry once. Dependencies fetched by the build
+itself (SwiftPM, CocoaPods via `--repo` copy) need no VM changes — they
+resolve inside the disposable clone.
 
 ## Run
 
