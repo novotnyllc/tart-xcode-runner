@@ -163,24 +163,19 @@ Run an XCUITest:
 Omit `-destination` to use the first available iPhone simulator. Pass an
 explicit destination for macOS tests or when device choice matters.
 
-The VM has no signing identities or provisioning profiles. Simulator builds
-don't need them, but macOS (and device) targets do — append ad-hoc signing
-overrides to the xcodebuild arguments for those:
+Signing is handled automatically: the VM has no signing identities, so when
+no `CODE_SIGN*`, `DEVELOPMENT_TEAM`, or `PROVISIONING_PROFILE*` argument is
+supplied, the guest applies ad-hoc manual signing with entitlements dropped —
+the only recipe that can work there (verified: macOS UI tests pass with no
+signing arguments at all). Pass any signing argument to take full manual
+control. Never pass `CODE_SIGNING_ALLOWED=NO` for UI tests — the unsigned
+test runner hangs before connecting.
 
-```sh
-CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
-PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS= \
-AD_HOC_CODE_SIGNING_ALLOWED=YES
-```
-
-`CODE_SIGN_ENTITLEMENTS=` matters: any entitlement that needs a profile
-(keychain access groups, app groups) otherwise fails the build even with
-ad-hoc signing. Do not use `CODE_SIGNING_ALLOWED=NO` for UI tests — the
-unsigned test runner hangs before connecting. Tests that genuinely require
-those entitlements (data-protection keychain, auth flows) cannot pass in the
-VM; exclude them with `-only-testing:`/`-skip-testing:` and say so in the
-report rather than reporting a false failure. Projects often document which
-suites need real signing — check their CI or verify scripts.
+One limit remains: tests that genuinely require profile-backed entitlements
+(data-protection keychain, app groups, auth flows) cannot pass with ad-hoc
+signing. Exclude them with `-only-testing:`/`-skip-testing:` and say so in
+the report rather than reporting a false failure — projects often document
+which suites need real signing in their CI or verify scripts.
 
 Report the printed result directory and exit status. Inspect `command.log` or
 `xcodebuild.log`; use `xcrun xcresulttool` against `Result.xcresult` for
