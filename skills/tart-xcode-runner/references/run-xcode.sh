@@ -15,7 +15,7 @@ xcode_args=("$@")
 
 mkdir -p "$checkout" "$derived_data"
 /usr/bin/rsync -a --delete \
-  --exclude .build --exclude DerivedData --exclude results \
+  --exclude .git --exclude .build --exclude DerivedData --exclude results \
   "$source_dir/" "$checkout/"
 
 if [[ $mode == xcui-test ]]; then

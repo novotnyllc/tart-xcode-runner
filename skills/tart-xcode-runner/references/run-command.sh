@@ -14,7 +14,7 @@ if (( has_repo )); then
   export TART_SOURCE="$work_dir/src"
   mkdir -p "$TART_SOURCE"
   /usr/bin/rsync -a --delete \
-    --exclude .build --exclude DerivedData --exclude results \
+    --exclude .git --exclude .build --exclude DerivedData --exclude results \
     "$source_dir/" "$TART_SOURCE/"
   cd "$TART_SOURCE"
 else

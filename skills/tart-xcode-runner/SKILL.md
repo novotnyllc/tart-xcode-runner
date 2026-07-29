@@ -153,6 +153,15 @@ Run an XCUITest:
 Omit `-destination` to use the first available iPhone simulator. Pass an
 explicit destination for macOS tests or when device choice matters.
 
+The VM has no signing identities or provisioning profiles. Simulator builds
+don't need them, but macOS (and device) targets do — append ad-hoc signing
+overrides to the xcodebuild arguments for those:
+
+```sh
+CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
+PROVISIONING_PROFILE_SPECIFIER= AD_HOC_CODE_SIGNING_ALLOWED=YES
+```
+
 Report the printed result directory and exit status. Inspect `command.log` or
 `xcodebuild.log`; use `xcrun xcresulttool` against `Result.xcresult` for
 structured failures. Never make the source share writable or build on VirtioFS.
