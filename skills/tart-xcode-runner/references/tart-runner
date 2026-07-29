@@ -307,6 +307,13 @@ run_locked() {
   exit_code=${pipestatus[1]}
   set -e
 
+  # tart exec does not reliably propagate the guest command's exit status;
+  # the guest helper writes the authoritative code to the shared artifacts dir.
+  local guest_status=
+  [[ ! -f "$result_dir/guest-exit-status" ]] ||
+    guest_status=$(<"$result_dir/guest-exit-status")
+  [[ $guest_status != <-> ]] || exit_code=$guest_status
+
   kill "$watchdog" >/dev/null 2>&1 || true
   wait "$watchdog" >/dev/null 2>&1 || true
   stop_vm "$WORK_VM"

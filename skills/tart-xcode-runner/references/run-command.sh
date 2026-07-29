@@ -22,4 +22,9 @@ else
   cd "$HOME"
 fi
 
-exec "$@"
+set +e
+"$@"
+exit_code=$?
+set -e
+print "$exit_code" >"$artifact_dir/guest-exit-status" || true
+exit "$exit_code"
