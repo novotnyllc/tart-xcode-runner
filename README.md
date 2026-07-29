@@ -29,8 +29,10 @@ and every run starts from the same pristine image.
   validate it against a checked-in config, and only then promote it — keeping
   the previous image for one-command rollback. An interrupted or broken run
   can always be cleared with `reset` without touching the base.
-- A host lock serializes invocations, and runs are bounded by a watchdog
-  timeout, so a hung test can't wedge the machine.
+- Runs can execute in parallel, each in its own clone; image changes are
+  exclusive. Every run is bounded by a watchdog timeout, so a hung test
+  can't wedge the machine. Set `TART_XCUI_BASE_VM` to keep multiple golden
+  images (say macOS 26 stable and the 27 beta) side by side.
 
 ## Install
 

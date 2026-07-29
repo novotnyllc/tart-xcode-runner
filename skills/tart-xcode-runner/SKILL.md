@@ -198,7 +198,29 @@ structured failures. Never make the source share writable or build on VirtioFS.
 - Run `"$RUNNER" smoke` after changing the runner, guest scripts, Tart, or
   the base image.
 
-Use one invocation at a time. The wrapper enforces this with a host lock.
+Runs may execute in parallel: each gets its own disposable clone, and the
+host lock covers only the brief clone step. Budget CPU and RAM — each VM
+takes its configured share. Image operations (`prepare`, `add-*`, `reset`,
+`rollback`, rebuilds) are exclusive and refuse to start while runs are
+active; retry them after the runs finish.
+
+## Multiple golden images
+
+`TART_XCUI_BASE_VM` selects the golden image; candidate, previous, and
+work VM names derive from it. Keep one base per image config when projects
+need different OS or Xcode versions:
+
+```sh
+export TART_XCUI_BASE_VM=tart-xcui-base-26   # this project targets macOS 26
+"$IMAGE_BUILDER" rebuild "$PLUGIN_ROOT/config/image-26.5.json"
+"$RUNNER" xcui-test --repo /path/to/repo -- -scheme App test
+```
+
+Another project can use `TART_XCUI_BASE_VM=tart-xcui-base-27` with the beta
+config; both images coexist in the same store, each with its own rollback.
+Pair the variable with the project's pinned `.tart-xcode/image.json` so the
+same shell sets both. The default base (`tart-xcui-base`) stays for
+single-image setups.
 
 ## Storage
 

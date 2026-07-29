@@ -16,10 +16,10 @@ export TART_HOME=${TART_XCUI_TART_HOME:-"$DATA_HOME/.tart"}
 STATE="$DATA_HOME/.state"
 SHARE="$DATA_HOME/vm-share"
 CACHE="$SHARE/cache"
-PACKED_VM=${TART_XCUI_PACKED_VM:-tart-xcui-packed}
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
+PACKED_VM=${TART_XCUI_PACKED_VM:-${BASE_VM}-packed}
 DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-26.5.json"}
-CONFIG_HASH="$STATE/image-config.sha256"
+CONFIG_HASH="$STATE/image-config-${BASE_VM}.sha256"
 PACKER_TART_COMMIT=c10d61142fdce6ca40c139a6575ce898e867b0f1
 READY_TIMEOUT=${TART_XCUI_READY_TIMEOUT:-600}
 UPGRADE_TIMEOUT=${TART_XCUI_UPGRADE_TIMEOUT:-7200}
@@ -495,7 +495,7 @@ packer_image() {
     /usr/bin/shasum -a 256 "$config" | /usr/bin/awk '{print $1}' >"$CONFIG_HASH"
   fi
   tart delete "$build_vm"
-  print "Exact image promoted to tart-xcui-base"
+  print "Exact image promoted to $BASE_VM"
 }
 
 case ${1:-help} in

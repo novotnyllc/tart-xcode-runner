@@ -14,9 +14,8 @@ DATA_HOME=${TART_XCUI_DATA_HOME:-$DEFAULT_DATA_HOME}
 export TART_HOME=${TART_XCUI_TART_HOME:-"$DATA_HOME/.tart"}
 
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
-CANDIDATE_VM=${TART_XCUI_CANDIDATE_VM:-tart-xcui-candidate}
-PREVIOUS_VM=${TART_XCUI_PREVIOUS_VM:-tart-xcui-base-previous}
-WORK_VM=${TART_XCUI_WORK_VM:-tart-xcui-run}
+CANDIDATE_VM=${TART_XCUI_CANDIDATE_VM:-${BASE_VM}-candidate}
+PREVIOUS_VM=${TART_XCUI_PREVIOUS_VM:-${BASE_VM}-previous}
 IMAGE=${TART_XCUI_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6}
 CPU=${TART_XCUI_CPU:-8}
 MEMORY=${TART_XCUI_MEMORY:-24576}
@@ -26,10 +25,16 @@ RUN_TIMEOUT=${TART_XCUI_RUN_TIMEOUT:-7200}
 GUEST_PASSWORD=${TART_XCUI_GUEST_PASSWORD:-admin}
 RESULTS=${TART_XCUI_RESULTS:-"$DATA_HOME/results"}
 STATE="$DATA_HOME/.state"
+RUNS_DIR="$STATE/runs"
 LOCK="$STATE/runner.lock"
+WORK_VM=
+RUN_ID=
 RUN_RESULT_DIR=
 RUN_TART_LOG=
 RUN_EXIT_CODE=1
+
+zmodload zsh/system
+integer LOCK_FD
 
 usage() {
   cat <<'EOF'
@@ -45,10 +50,15 @@ Usage:
   tart-runner reset
   tart-runner rollback
 
+Runs may execute in parallel; each uses its own disposable clone. Image
+operations (prepare, add-*, reset, rollback) are exclusive and refuse to
+start while runs are active.
+
 Environment:
-  TART_XCUI_DATA_HOME, TART_XCUI_TART_HOME, TART_XCUI_IMAGE, TART_XCUI_CPU,
-  TART_XCUI_MEMORY, TART_XCUI_DISK_SIZE, TART_XCUI_RUN_TIMEOUT,
-  TART_XCUI_RESULTS, TART_XCUI_KEEP_FAILED=1
+  TART_XCUI_DATA_HOME, TART_XCUI_TART_HOME, TART_XCUI_BASE_VM (select a
+  golden image; candidate/previous/work VM names derive from it),
+  TART_XCUI_IMAGE, TART_XCUI_CPU, TART_XCUI_MEMORY, TART_XCUI_DISK_SIZE,
+  TART_XCUI_RUN_TIMEOUT, TART_XCUI_RESULTS, TART_XCUI_KEEP_FAILED=1
 EOF
 }
 
@@ -58,7 +68,31 @@ die() {
 }
 
 prepare_dirs() {
-  mkdir -p "$TART_HOME" "$RESULTS" "$STATE"
+  mkdir -p "$TART_HOME" "$RESULTS" "$STATE" "$RUNS_DIR"
+}
+
+lock_runner() {
+  local timeout=${1:-300}
+  : >>"$LOCK"
+  zsystem flock -t "$timeout" -f LOCK_FD "$LOCK" ||
+    die "another runner operation holds the lock; retry shortly"
+}
+
+unlock_runner() {
+  zsystem flock -u "$LOCK_FD" 2>/dev/null || true
+}
+
+# Runs register a pidfile while their VM is alive. Image operations must not
+# mutate the golden image while any run's clone might still depend on state.
+ensure_no_active_runs() {
+  local f pid
+  for f in "$RUNS_DIR"/*.pid(N); do
+    pid=$(<"$f")
+    if kill -0 "$pid" 2>/dev/null; then
+      die "a run (pid $pid, $(basename "$f" .pid)) is active; retry after it finishes"
+    fi
+    rm -f "$f"
+  done
 }
 
 need_tart() {
@@ -127,6 +161,12 @@ doctor() {
       print "base VM:    $BASE_VM (missing; run prepare)"
       failed=1
     }
+  local f pid active=0
+  for f in "$RUNS_DIR"/*.pid(N); do
+    pid=$(<"$f")
+    kill -0 "$pid" 2>/dev/null && (( ++active ))
+  done
+  print "active runs: $active"
   security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 &&
     print "keychain:   login keychain available" ||
     print "keychain:   WARNING: unlock login.keychain before headless VM starts"
@@ -142,8 +182,6 @@ prepare_base() {
   [[ $# -le 1 ]] || die "prepare accepts at most one OCI or local image"
   [[ $# -eq 0 ]] || image=$1
 
-  prepare_dirs
-  need_tart
   if vm_exists "$BASE_VM" && (( ! replace )); then
     print "Base VM already exists: $BASE_VM"
     return 0
@@ -237,10 +275,11 @@ cleanup_work_vm() {
     delete_vm "$WORK_VM"
     print "tart: deleted disposable VM $WORK_VM; golden image $BASE_VM untouched"
   fi
+  [[ -z $RUN_ID ]] || rm -f "$RUNS_DIR/$RUN_ID.pid"
 }
 
-run_locked() {
-  local kind=$1 repo= has_repo=0 helper log_name run_id result_dir
+run_cmd() {
+  local kind=$1 repo= has_repo=0 helper log_name result_dir
   local run_pid watchdog exit_code
   shift
 
@@ -255,15 +294,17 @@ run_locked() {
   [[ $# -gt 0 ]] || die "no command arguments supplied"
   (( has_repo == 0 )) || [[ -d $repo ]] || die "repository does not exist: $repo"
   [[ $kind == command || $has_repo == 1 ]] || die "$kind requires --repo PATH"
+
+  prepare_dirs
+  need_tart
   vm_exists "$BASE_VM" || die "base VM is missing; run prepare"
 
-  stop_vm "$WORK_VM"
-  delete_vm "$WORK_VM"
-  run_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-  result_dir="$RESULTS/$run_id"
+  RUN_ID="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+  WORK_VM=${TART_XCUI_WORK_VM:-tart-xcui-run-$RUN_ID}
+  result_dir="$RESULTS/$RUN_ID"
   mkdir -p "$result_dir"
   RUN_RESULT_DIR=$result_dir
-  RUN_TART_LOG="$STATE/$run_id.tart.log"
+  RUN_TART_LOG="$STATE/$RUN_ID.tart.log"
   if [[ $kind == command ]]; then
     helper=run-command.sh
     log_name=command.log
@@ -274,8 +315,14 @@ run_locked() {
   cp "$REFERENCES/$helper" "$result_dir/$helper"
   print "results: $result_dir"
 
+  # The lock covers only the clone: cheap, and it serializes against image
+  # promotion. The long build/test phase runs unlocked so runs can overlap.
+  lock_runner 300
   print "tart: cloning golden image $BASE_VM -> disposable VM $WORK_VM"
   tart clone "$BASE_VM" "$WORK_VM"
+  print $$ >"$RUNS_DIR/$RUN_ID.pid"
+  unlock_runner
+
   trap 'RUN_EXIT_CODE=130; cleanup_work_vm; exit 130' INT TERM HUP
   local run_args=(--no-graphics --dir="artifacts:$result_dir")
   (( has_repo == 0 )) || run_args+=(--dir="source:${repo}:ro")
@@ -297,11 +344,11 @@ run_locked() {
   set +e
   if [[ $kind == command ]]; then
     tart exec "$WORK_VM" /bin/zsh \
-      "/Volumes/My Shared Files/artifacts/$helper" "$run_id" "$has_repo" "$@" \
+      "/Volumes/My Shared Files/artifacts/$helper" "$RUN_ID" "$has_repo" "$@" \
       2>&1 | tee "$result_dir/$log_name"
   else
     tart exec "$WORK_VM" /bin/zsh \
-      "/Volumes/My Shared Files/artifacts/$helper" "$run_id" "$kind" "$@" \
+      "/Volumes/My Shared Files/artifacts/$helper" "$RUN_ID" "$kind" "$@" \
       2>&1 | tee "$result_dir/$log_name"
   fi
   exit_code=${pipestatus[1]}
@@ -327,15 +374,19 @@ run_locked() {
   return "$exit_code"
 }
 
-reset_locked() {
-  stop_vm "$WORK_VM"
-  delete_vm "$WORK_VM"
+reset_cmd() {
+  local vm
+  for vm in $(tart list --source local -q | grep '^tart-xcui-run' || true); do
+    stop_vm "$vm"
+    delete_vm "$vm"
+  done
   stop_vm "$CANDIDATE_VM"
   delete_vm "$CANDIDATE_VM"
+  rm -f "$RUNS_DIR"/*.pid(N)
   print "Disposable VM state reset; base preserved: $BASE_VM"
 }
 
-rollback_locked() {
+rollback_cmd() {
   vm_exists "$PREVIOUS_VM" || die "no previous golden image is available"
   stop_vm "$CANDIDATE_VM"
   delete_vm "$CANDIDATE_VM"
@@ -345,39 +396,30 @@ rollback_locked() {
   print "Rolled back $BASE_VM; the replaced image is now $PREVIOUS_VM"
 }
 
-locked() {
-  local action=$1 exit_code
-  shift
+# Image operations hold the lock for their whole duration and require that
+# no run is active. The lock fd stays open until the process exits.
+exclusive() {
   prepare_dirs
   need_tart
-  set +e
-  /usr/bin/lockf -t 0 "$LOCK" "$SCRIPT" "_$action" "$@"
-  exit_code=$?
-  set -e
-  (( exit_code == 0 )) ||
-    print -u2 -- "runner is busy or the operation failed"
-  return "$exit_code"
+  lock_runner 60
+  ensure_no_active_runs
+  "$@"
 }
 
 case ${1:-help} in
   doctor) doctor ;;
-  prepare) shift; locked prepare "$@" ;;
-  add-platform) shift; locked add-xcode platform "$@" ;;
-  add-component) shift; locked add-xcode component "$@" ;;
-  run) shift; locked run command "$@" ;;
-  build) shift; locked run build "$@" ;;
-  xcui-test|test) shift; locked run xcui-test "$@" ;;
+  prepare) shift; exclusive prepare_base "$@" ;;
+  add-platform) shift; exclusive add_xcode_items platform "$@" ;;
+  add-component) shift; exclusive add_xcode_items component "$@" ;;
+  run) shift; run_cmd command "$@" ;;
+  build) shift; run_cmd build "$@" ;;
+  xcui-test|test) shift; run_cmd xcui-test "$@" ;;
   smoke)
-    locked run xcui-test --repo "$ROOT/fixtures/SmokeApp" -- \
+    run_cmd xcui-test --repo "$ROOT/fixtures/SmokeApp" -- \
       -project SmokeApp.xcodeproj -scheme SmokeApp test
     ;;
-  reset) locked reset ;;
-  rollback) locked rollback ;;
-  _prepare) shift; prepare_base "$@" ;;
-  _add-xcode) shift; add_xcode_items "$@" ;;
-  _run) shift; run_locked "$@" ;;
-  _reset) reset_locked ;;
-  _rollback) rollback_locked ;;
+  reset) shift 2>/dev/null || true; exclusive reset_cmd ;;
+  rollback) shift 2>/dev/null || true; exclusive rollback_cmd ;;
   help|-h|--help) usage ;;
   *) usage; die "unknown command: $1" ;;
 esac
