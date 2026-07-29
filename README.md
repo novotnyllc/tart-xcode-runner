@@ -20,12 +20,14 @@ RUNNER=skills/tart-xcode-runner/references/tart-runner
 
 See [`skills/tart-xcode-runner/SKILL.md`](skills/tart-xcode-runner/SKILL.md) for
 installation, image acquisition, exact-beta Packer builds, and recovery.
-The checked-in [`config/image.json`](config/image.json) is the reproducible
-golden-image contract used by `prepare-image.zsh rebuild`. The default rebuild
-follows its checked-in `buildStrategy`, installs Xcode and configured runtimes,
-validates the exact builds, then promotes the candidate while retaining one
-rollback image. This contract upgrades the pinned, preconfigured Tahoe OCI
-image by default; the from-IPSW Packer path remains available as a fallback.
+Checked-in image configs are the reproducible golden-image contract used by
+`prepare-image.zsh rebuild`: [`config/image-26.5.json`](config/image-26.5.json)
+(stable, the default) and [`config/image-27-beta.json`](config/image-27-beta.json)
+(exact macOS/Xcode 27 beta). A project can pin its own by committing
+`.tart-xcode/image.json` at its repo root; pass it to `rebuild` or set
+`TART_XCUI_IMAGE_CONFIG`. Each config's `buildStrategy` (`download`,
+`upgrade`, or `packer`) chooses the construction path; every path validates
+the candidate before promoting it and retains one rollback image.
 
 VMs live in the Git-ignored `.tart/` directory by default; override that with
 `TART_XCUI_TART_HOME=/absolute/path`. No setup path requires interactive input.

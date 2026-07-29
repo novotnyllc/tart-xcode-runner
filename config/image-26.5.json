@@ -1,0 +1,11 @@
+{
+  "name": "macos-26.5-xcode-26",
+  "buildStrategy": "download",
+  "seedImage": "ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6",
+  "platforms": [
+    "iOS"
+  ],
+  "cpu": 8,
+  "memoryGB": 16,
+  "diskGB": 200
+}

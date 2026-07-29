@@ -32,54 +32,47 @@ IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
 2. Run `"$RUNNER" doctor`. If the execution sandbox cannot inspect the login
    keychain or start Virtualization.framework, request host authorization for
    the runner. Never fall back to running UI tests on the host.
-3. Choose one image path:
+3. Pick the image config. Precedence, first match wins:
 
-   - Reconstruct or update the repository-pinned image (recommended):
+   1. A config checked into the project being tested: `.tart-xcode/image.json`
+      at the repo root. Honor it without asking.
+   2. The user explicitly asks for a beta or a specific OS/Xcode version.
+   3. The project requires beta SDKs (deployment target or SDK newer than the
+      current stable) → `"$PLUGIN_ROOT/config/image-27-beta.json"`.
+   4. Otherwise the stable default: `"$PLUGIN_ROOT/config/image-26.5.json"`.
 
-     ```sh
-     "$IMAGE_BUILDER" rebuild
-     ```
+   Then build or update the golden image from it:
 
-     This reads `config/image.json`, skips the build when the current golden
-     image passes exact runtime validation, and safely updates when it changes.
-     `buildStrategy` chooses the checked-in construction path. The default
-     `upgrade` path clones the pinned, preconfigured Tahoe Xcode image and
-     applies the pinned `InstallAssistant.pkg`, preserving its guest agent,
-     SSH, account, auto-login, and no-lock setup. Use `packer` only when a
-     compatible published seed is unavailable. Both paths install the
-     configured host Xcode app, runtimes, CLI selection, license, Metal
-     toolchain, and login settings before promotion. There is no interactive
-     Setup Assistant.
+   ```sh
+   "$IMAGE_BUILDER" rebuild "$CONFIG"
+   ```
 
-   - Published OCI image:
+   With no argument, `rebuild` uses `TART_XCUI_IMAGE_CONFIG` or the stable
+   default. To pin an image for a project, copy a shipped config into that
+   repo as `.tart-xcode/image.json` and edit it — commit it so every machine
+   reconstructs the same VM.
 
-     ```sh
-     "$IMAGE_BUILDER" download OCI_IMAGE
-     ```
+   `rebuild` skips the build when the current golden image already passes the
+   config's runtime validation, and safely updates when it changes.
+   `buildStrategy` chooses the construction path:
 
-     The downloaded candidate must satisfy `config/image.json` before it can
-     replace the golden base.
+   - `download` (stable default): clone the pinned published OCI seed image
+     and validate it. Fast; no local Xcode app needed.
+   - `upgrade` (beta default): clone the pinned preconfigured seed, apply the
+     pinned `InstallAssistant.pkg`, and install the configured host Xcode app,
+     runtimes, CLI selection, license, Metal toolchain, and login settings —
+     preserving guest agent, SSH, auto-login, and no-lock setup. Requires the
+     beta Xcode app on the host at `xcodeApp` (Apple developer login needed to
+     download it). There is no interactive Setup Assistant.
+   - `packer`: build from a restore IPSW when no compatible published seed
+     exists. Use only as a fallback.
 
-   - Exact macOS/Xcode beta with a restore IPSW and local Xcode app:
-
-     ```sh
-     "$IMAGE_BUILDER" packer --config "$PLUGIN_ROOT/config/image.json"
-     ```
-
-     This from-IPSW path is also unattended and bounded by
-     `TART_XCUI_PACKER_TIMEOUT` (one hour by default). It requires Packer and
-     Go; install them with:
-
-     ```sh
-     brew tap hashicorp/tap
-     brew install hashicorp/tap/packer
-     brew install go
-     ```
-
-     The config supplies the IPSW, exact builds, local Xcode app, SDKs,
-     runtimes, and VM resources. Apple beta Xcode downloads require an Apple
-     developer login, so place the configured app at `xcodeApp` before running
-     either reconstruction path.
+   Direct commands also exist: `"$IMAGE_BUILDER" download OCI_IMAGE` promotes
+   a published image (validated against the config first), and
+   `"$IMAGE_BUILDER" packer --config CONFIG` runs the from-IPSW build; the
+   packer path is unattended, bounded by `TART_XCUI_PACKER_TIMEOUT` (one hour
+   default), and needs Packer and Go
+   (`brew tap hashicorp/tap && brew install hashicorp/tap/packer go`).
 
 All paths build a candidate, validate it, then replace the powered-off golden
 base. Never delete the current base before candidate validation succeeds.
@@ -93,8 +86,9 @@ Add runtimes later without rebuilding macOS or Xcode:
 ```
 
 This modifies a disposable clone and promotes it only after validation.
-For a durable, reconstructible change, also add the platform to
-`config/image.json` and run `"$IMAGE_BUILDER" rebuild`.
+For a durable, reconstructible change, also add the platform to the active
+config (the project's `.tart-xcode/image.json` if present) and run
+`"$IMAGE_BUILDER" rebuild "$CONFIG"`.
 The golden base also selects Xcode's CLI tools, completes first-launch tasks,
 accepts the license, installs the Metal toolchain, enables auto-login, and
 disables sleep, screensavers, and screen locking.

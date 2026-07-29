@@ -18,7 +18,7 @@ SHARE="$DATA_HOME/vm-share"
 CACHE="$SHARE/cache"
 PACKED_VM=${TART_XCUI_PACKED_VM:-tart-xcui-packed}
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
-DEFAULT_CONFIG="$ROOT/config/image.json"
+DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-26.5.json"}
 CONFIG_HASH="$STATE/image-config.sha256"
 PACKER_TART_COMMIT=c10d61142fdce6ca40c139a6575ce898e867b0f1
 READY_TIMEOUT=${TART_XCUI_READY_TIMEOUT:-600}
@@ -177,17 +177,23 @@ wait_for_build() {
 
 validate_exact_vm() {
   local vm=$1 config=$2 run_pid failed=0
+  local macos_version macos_build xcode_version xcode_build
+  macos_version=$(json_value "$config" macOSVersion 2>/dev/null || true)
+  macos_build=$(json_value "$config" macOSBuild 2>/dev/null || true)
+  xcode_version=$(json_value "$config" xcodeVersion 2>/dev/null || true)
+  xcode_build=$(json_value "$config" xcodeBuild 2>/dev/null || true)
   stop_vm "$vm"
   tart run --no-graphics "$vm" >"$STATE/validate-image.log" 2>&1 &
   run_pid=$!
   wait_for_agent "$vm" "$run_pid" ||
     die "$vm failed to start; see $STATE/validate-image.log"
+  # Version keys are optional: a config pins only what it declares.
   tart exec "$vm" /bin/zsh -lc "
     set -e
-    test \"\$(/usr/bin/sw_vers -productVersion)\" = '$(json_value "$config" macOSVersion)'
-    test \"\$(/usr/bin/sw_vers -buildVersion)\" = '$(json_value "$config" macOSBuild)'
-    test \"\$(/usr/bin/xcodebuild -version | /usr/bin/awk '/^Xcode/{print \$2}')\" = '$(json_value "$config" xcodeVersion)'
-    test \"\$(/usr/bin/xcodebuild -version | /usr/bin/awk '/Build version/{print \$3}')\" = '$(json_value "$config" xcodeBuild)'
+    [[ -z '$macos_version' ]] || test \"\$(/usr/bin/sw_vers -productVersion)\" = '$macos_version'
+    [[ -z '$macos_build' ]] || test \"\$(/usr/bin/sw_vers -buildVersion)\" = '$macos_build'
+    [[ -z '$xcode_version' ]] || test \"\$(/usr/bin/xcodebuild -version | /usr/bin/awk '/^Xcode/{print \$2}')\" = '$xcode_version'
+    [[ -z '$xcode_build' ]] || test \"\$(/usr/bin/xcodebuild -version | /usr/bin/awk '/Build version/{print \$3}')\" = '$xcode_build'
     /usr/bin/xcodebuild -checkFirstLaunchStatus
     /usr/bin/xcrun -f clang >/dev/null
     /usr/bin/xcrun -f metal >/dev/null
@@ -198,11 +204,13 @@ validate_exact_vm() {
   " || failed=1
   local value
   for value in "${(@f)$(json_array "$config" sdks)}"; do
+    [[ -n $value ]] || continue
     tart exec "$vm" /bin/zsh -lc \
       "/usr/bin/xcodebuild -showsdks | /usr/bin/grep -Fq -- '-sdk $value'" ||
       failed=1
   done
   for value in "${(@f)$(json_array "$config" platforms)}"; do
+    [[ -n $value ]] || continue
     tart exec "$vm" /bin/zsh -lc \
       "/usr/bin/xcrun simctl list runtimes available | /usr/bin/grep -Fq '$value'" ||
       failed=1
@@ -246,6 +254,7 @@ rebuild_image() {
   case $strategy in
     packer) packer_image --config "$config" ;;
     upgrade) upgrade_image "$config" ;;
+    download) download_image "$(json_value "$config" seedImage)" "$config" ;;
     *) die "unsupported buildStrategy: $strategy" ;;
   esac
   print "$hash" >"$CONFIG_HASH"
