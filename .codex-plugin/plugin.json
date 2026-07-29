@@ -1,6 +1,6 @@
 {
   "name": "tart-xcode-runner",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "description": "Run isolated Xcode builds and XCUITests in reusable, resettable Tart macOS VMs.",
   "author": {
     "name": "Claire Novotny LLC",

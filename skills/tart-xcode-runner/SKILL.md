@@ -158,9 +158,19 @@ don't need them, but macOS (and device) targets do — append ad-hoc signing
 overrides to the xcodebuild arguments for those:
 
 ```sh
-CODE_SIGN_IDENTITY=- CODE_SIGN_STYLE=Manual DEVELOPMENT_TEAM= \
-PROVISIONING_PROFILE_SPECIFIER= AD_HOC_CODE_SIGNING_ALLOWED=YES
+CODE_SIGN_STYLE=Manual CODE_SIGN_IDENTITY=- DEVELOPMENT_TEAM= \
+PROVISIONING_PROFILE_SPECIFIER= CODE_SIGN_ENTITLEMENTS= \
+AD_HOC_CODE_SIGNING_ALLOWED=YES
 ```
+
+`CODE_SIGN_ENTITLEMENTS=` matters: any entitlement that needs a profile
+(keychain access groups, app groups) otherwise fails the build even with
+ad-hoc signing. Do not use `CODE_SIGNING_ALLOWED=NO` for UI tests — the
+unsigned test runner hangs before connecting. Tests that genuinely require
+those entitlements (data-protection keychain, auth flows) cannot pass in the
+VM; exclude them with `-only-testing:`/`-skip-testing:` and say so in the
+report rather than reporting a false failure. Projects often document which
+suites need real signing — check their CI or verify scripts.
 
 Report the printed result directory and exit status. Inspect `command.log` or
 `xcodebuild.log`; use `xcrun xcresulttool` against `Result.xcresult` for
