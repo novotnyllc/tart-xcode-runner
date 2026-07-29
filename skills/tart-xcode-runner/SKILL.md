@@ -1,15 +1,15 @@
 ---
-name: tart-xcui-runner
-description: Operate reusable Tart macOS VMs for isolated commands, Xcode builds, and XCUITest runs. Use when an agent needs to run work away from the host, build an Apple-platform project, run iOS or macOS UI tests without taking over the host, reset the VM, acquire or build an exact macOS/Xcode image, or retrieve logs and xcresult artifacts.
+name: tart-xcode-runner
+description: Run commands, Xcode builds, and XCUITests in reusable Tart VMs. Use when Apple-platform work must run off-host, or to prepare, reset, roll back, and collect results from a test VM.
 ---
 
-# Tart Runner
+# Tart Xcode Runner
 
 Run commands from the plugin repository root. Set:
 
 ```sh
-RUNNER=skills/tart-xcui-runner/references/tart-runner
-IMAGE_BUILDER=skills/tart-xcui-runner/references/prepare-image.zsh
+RUNNER=skills/tart-xcode-runner/references/tart-runner
+IMAGE_BUILDER=skills/tart-xcode-runner/references/prepare-image.zsh
 ```
 
 ## Setup
@@ -145,10 +145,9 @@ Use one invocation at a time. The wrapper enforces this with a host lock.
 
 ## Storage
 
-VM disks are stored in the repository-local `.tart/` directory by default,
-which keeps this plugin's images isolated and makes cleanup unambiguous. The
-directory is Git-ignored. Set `TART_XCUI_TART_HOME` to an absolute path—such
-as a fast external volume—before every command to store images elsewhere.
-Results are written to `results/`; cached installers and Xcode archives are
-written to the Git-ignored `vm-share/cache/`; logs and checksums are written
-to `.state/`.
+From a source checkout, VM disks and mutable data stay in its Git-ignored
+`.tart/`, `results/`, `vm-share/`, and `.state/` directories. From an installed
+plugin, they stay across plugin upgrades under
+`~/Library/Application Support/Tart Xcode Runner/`. Set
+`TART_XCUI_DATA_HOME` to move all mutable data together, or
+`TART_XCUI_TART_HOME` to move only Tart's VM storage.

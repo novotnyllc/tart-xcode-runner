@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title">
+  <title id="title">Tart Xcode Runner</title>
+  <rect width="1024" height="1024" rx="224" fill="#0F172A"/>
+  <rect x="186" y="220" width="652" height="514" rx="84" fill="#2563EB" opacity=".48"/>
+  <rect x="138" y="174" width="652" height="514" rx="84" fill="#F8FAFC"/>
+  <path d="M138 258c0-46 38-84 84-84h484c46 0 84 38 84 84v42H138z" fill="#2563EB"/>
+  <circle cx="230" cy="238" r="22" fill="#F87171"/>
+  <circle cx="296" cy="238" r="22" fill="#FBBF24"/>
+  <circle cx="362" cy="238" r="22" fill="#34D399"/>
+  <polygon points="238,400 286,400 382,496 286,592 238,592 334,496" fill="#2563EB"/>
+  <rect x="422" y="552" width="164" height="48" rx="24" fill="#2563EB"/>
+  <circle cx="752" cy="702" r="150" fill="#22C55E"/>
+  <polygon points="650,702 684,668 726,710 816,610 852,642 728,782" fill="#FFF"/>
+</svg>

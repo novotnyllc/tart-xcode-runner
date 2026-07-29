@@ -6,9 +6,15 @@ SCRIPT=${0:A}
 REFERENCES=${SCRIPT:h}
 ROOT=${REFERENCES:h:h:h}
 RUNNER="$REFERENCES/tart-runner"
-export TART_HOME=${TART_XCUI_TART_HOME:-"$ROOT/.tart"}
-STATE="$ROOT/.state"
-SHARE="$ROOT/vm-share"
+if [[ -d "$ROOT/.git" ]]; then
+  DEFAULT_DATA_HOME=$ROOT
+else
+  DEFAULT_DATA_HOME="$HOME/Library/Application Support/Tart Xcode Runner"
+fi
+DATA_HOME=${TART_XCUI_DATA_HOME:-$DEFAULT_DATA_HOME}
+export TART_HOME=${TART_XCUI_TART_HOME:-"$DATA_HOME/.tart"}
+STATE="$DATA_HOME/.state"
+SHARE="$DATA_HOME/vm-share"
 CACHE="$SHARE/cache"
 PACKED_VM=${TART_XCUI_PACKED_VM:-tart-xcui-packed}
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}

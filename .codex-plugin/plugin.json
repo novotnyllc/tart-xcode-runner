@@ -1,18 +1,44 @@
 {
-  "name": "tart",
-  "version": "0.1.0",
-  "description": "Run commands, Xcode builds, and XCUITests in disposable Tart VMs.",
+  "name": "tart-xcode-runner",
+  "version": "0.1.1",
+  "description": "Run isolated Xcode builds and XCUITests in reusable, resettable Tart macOS VMs.",
   "author": {
-    "name": "Claire"
+    "name": "Claire Novotny LLC",
+    "url": "https://github.com/novotnyllc"
   },
+  "homepage": "https://github.com/novotnyllc/tart-xcode-runner",
+  "repository": "https://github.com/novotnyllc/tart-xcode-runner",
+  "license": "MIT",
+  "keywords": [
+    "tart",
+    "macos",
+    "xcode",
+    "xcuitest",
+    "ios",
+    "simulator",
+    "virtualization",
+    "testing"
+  ],
   "skills": "./skills/",
   "interface": {
-    "displayName": "Tart Runner",
-    "shortDescription": "Isolated macOS builds and UI tests",
-    "longDescription": "Creates reusable Tart base images and disposable macOS runners for commands, Xcode builds, and XCUITests.",
-    "developerName": "Claire",
+    "displayName": "Tart Xcode Runner",
+    "shortDescription": "Reusable macOS VMs for isolated Xcode builds and XCUITests",
+    "longDescription": "Build Apple-platform projects and run XCUITests away from the host in reusable Tart macOS VMs. Create exact macOS and Xcode images, run work in disposable clones, retrieve logs and xcresult bundles, then reset or roll back safely.",
+    "developerName": "Claire Novotny LLC",
     "category": "Developer Tools",
-    "capabilities": [],
-    "defaultPrompt": "Use Tart to run this command, build, or UI test in an isolated macOS VM."
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "websiteURL": "https://github.com/novotnyllc/tart-xcode-runner",
+    "defaultPrompt": [
+      "Run this XCUITest in a disposable Tart VM and return the xcresult bundle.",
+      "Build this Xcode project in a resettable Tart VM.",
+      "Run this command in the Tart VM without using the host."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./assets/icon.svg",
+    "logo": "./assets/icon.svg"
   }
 }
