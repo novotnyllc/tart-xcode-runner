@@ -241,6 +241,14 @@ unavailable until the next promotion, and a future rebuild re-downloads
 installers. Suggest `clean` to the user when `doctor` shows the disk running
 low; ask before using `--images`.
 
+Superseded versions age out on their own where it's safe: promoting a new
+image auto-deletes older pinned installers and Xcode archives (re-downloadable,
+keyed by build), and each base keeps exactly one rollback — promoting beta 5
+retires beta 4's rollback. Whole golden images are never auto-deleted: when
+`clean` lists a base VM whose last access is old (a stable base no project
+uses anymore), ask the user before removing it and its `-previous` with
+`tart delete`.
+
 ## Configuration reference
 
 All knobs are environment variables; defaults in parentheses:

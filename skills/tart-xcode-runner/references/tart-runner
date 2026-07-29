@@ -414,6 +414,8 @@ clean_cmd() {
     print "clean: removed rollback image $PREVIOUS_VM and installer archives"
     print "clean: next rollback is unavailable until the next promotion"
   fi
+  print "golden images (delete unused ones with: tart delete NAME):"
+  tart list --source local 2>/dev/null | sed -n '1p;/tart-xcui-base/p'
   df -h "$TART_HOME" | tail -1
 }
 

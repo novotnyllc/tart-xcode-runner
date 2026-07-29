@@ -220,6 +220,26 @@ validate_exact_vm() {
   return "$failed"
 }
 
+# A promoted image supersedes older pinned downloads of the same kind; they
+# are keyed by build and re-downloadable, so reclaim the space eagerly.
+prune_stale_downloads() {
+  local keep_installer=$1 keep_archive=$2 f
+  if [[ -n $keep_installer ]]; then
+    for f in "$CACHE"/InstallAssistant-*.pkg(N); do
+      [[ $f == $keep_installer ]] || {
+        rm -f "$f"
+        print "pruned superseded installer: ${f:t}"
+      }
+    done
+  fi
+  for f in "$CACHE"/*.zip(N); do
+    [[ $f == $keep_archive ]] || {
+      rm -f "$f"
+      print "pruned superseded Xcode archive: ${f:t}"
+    }
+  done
+}
+
 json_value() {
   /usr/bin/plutil -extract "$2" raw -o - "$1"
 }
@@ -344,6 +364,7 @@ upgrade_image() {
   validate_exact_vm "$BASE_VM" "$config" ||
     die "$BASE_VM failed post-promotion validation"
   delete_vm "$PACKED_VM"
+  prune_stale_downloads "$installer_file" "$archive"
   print "Exact image promoted to $BASE_VM"
 }
 
@@ -495,6 +516,7 @@ packer_image() {
     /usr/bin/shasum -a 256 "$config" | /usr/bin/awk '{print $1}' >"$CONFIG_HASH"
   fi
   tart delete "$build_vm"
+  prune_stale_downloads "" "$archive"
   print "Exact image promoted to $BASE_VM"
 }
 
