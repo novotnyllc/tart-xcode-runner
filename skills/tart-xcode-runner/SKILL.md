@@ -52,9 +52,10 @@ IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
    repo as `.tart-xcode/image.json` and edit it — commit it so every machine
    reconstructs the same VM.
 
-   `rebuild` skips the build when the current golden image already passes the
-   config's runtime validation, and safely updates when it changes.
-   `buildStrategy` chooses the construction path:
+   Always run `rebuild` before considering any build: it validates the
+   current golden image against the config and no-ops when it already
+   matches — the image may already exist from a previous session. Follow the
+   config's checked-in `buildStrategy`; do not pick a strategy yourself:
 
    - `download` (stable default): clone the pinned published OCI seed image
      and validate it. Fast; no local Xcode app needed.
@@ -64,8 +65,16 @@ IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
      preserving guest agent, SSH, auto-login, and no-lock setup. Requires the
      beta Xcode app on the host at `xcodeApp` (Apple developer login needed to
      download it). There is no interactive Setup Assistant.
-   - `packer`: build from a restore IPSW when no compatible published seed
-     exists. Use only as a fallback.
+
+     The seed does NOT need to match the target macOS: `upgrade` exists
+     precisely to build a newer macOS (a 27 beta) on top of the newest
+     published seed (a 26.x image). "No published image for the target
+     version" is the normal case `upgrade` solves, never a reason to fall
+     back to `packer`.
+   - `packer`: build from a restore IPSW. Slow (hours) and heavy; use only
+     when no seed image of any version can boot the target at all — a new
+     device family or a seed-incompatible major release, both rare. Never
+     choose it just because the exact target version has no published seed.
 
    Direct commands also exist: `"$IMAGE_BUILDER" download OCI_IMAGE` promotes
    a published image (validated against the config first), and
@@ -199,3 +208,10 @@ plugin, they stay across plugin upgrades under
 `~/Library/Application Support/Tart Xcode Runner/`. Set
 `TART_XCUI_DATA_HOME` to move all mutable data together, or
 `TART_XCUI_TART_HOME` to move only Tart's VM storage.
+
+These stores are separate: a checkout and an installed plugin do not see
+each other's VMs. Before building any image, run `"$RUNNER" doctor` — it
+prints the active `TART_HOME` and whether the base VM exists. If the base is
+"missing" but a golden image was built before, look for another store (a
+plugin checkout's `.tart/`, or the Application Support path) and reuse it via
+`TART_XCUI_DATA_HOME` instead of rebuilding for hours.
