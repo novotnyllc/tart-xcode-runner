@@ -84,15 +84,26 @@ unlock_runner() {
 }
 
 # Runs register a pidfile while their VM is alive. Image operations must not
-# mutate the golden image while any run's clone might still depend on state.
+# mutate or boot the golden image while any run's clone might depend on it.
+# With a wait budget, drains: the caller holds the runner lock, so no new
+# runs can start while we wait for the active ones to finish.
 ensure_no_active_runs() {
-  local f pid
-  for f in "$RUNS_DIR"/*.pid(N); do
-    pid=$(<"$f")
-    if kill -0 "$pid" 2>/dev/null; then
-      die "a run (pid $pid, $(basename "$f" .pid)) is active; retry after it finishes"
-    fi
-    rm -f "$f"
+  local timeout=${1:-0} f pid active
+  local deadline=$((SECONDS + timeout))
+  while true; do
+    active=
+    for f in "$RUNS_DIR"/*.pid(N); do
+      pid=$(<"$f")
+      if kill -0 "$pid" 2>/dev/null; then
+        active=$pid
+      else
+        rm -f "$f"
+      fi
+    done
+    [[ -n $active ]] || return 0
+    (( SECONDS < deadline )) ||
+      die "a run (pid $active) is active; retry after it finishes"
+    sleep 15
   done
 }
 
@@ -318,7 +329,8 @@ run_cmd() {
 
   # The lock covers only the clone: cheap, and it serializes against image
   # promotion. The long build/test phase runs unlocked so runs can overlap.
-  lock_runner 300
+  # Generous wait: an image operation may hold the lock for several minutes.
+  lock_runner 900
   print "tart: cloning golden image $BASE_VM -> disposable VM $WORK_VM"
   tart clone "$BASE_VM" "$WORK_VM"
   print $$ >"$RUNS_DIR/$RUN_ID.pid"
@@ -429,21 +441,25 @@ rollback_cmd() {
   print "Rolled back $BASE_VM; the replaced image is now $PREVIOUS_VM"
 }
 
-# Image operations hold the lock for their whole duration and require that
-# no run is active. The lock fd stays open until the process exits.
+# Image operations hold the lock for their whole duration and drain active
+# runs first (up to the wait budget). The lock fd stays open until exit.
 exclusive() {
+  local wait=$1
+  shift
   prepare_dirs
   need_tart
   lock_runner 60
-  ensure_no_active_runs
+  ensure_no_active_runs "$wait"
   "$@"
 }
 
+RUNS_WAIT=${TART_XCUI_RUNS_WAIT:-1800}
+
 case ${1:-help} in
   doctor) doctor ;;
-  prepare) shift; exclusive prepare_base "$@" ;;
-  add-platform) shift; exclusive add_xcode_items platform "$@" ;;
-  add-component) shift; exclusive add_xcode_items component "$@" ;;
+  prepare) shift; exclusive "$RUNS_WAIT" prepare_base "$@" ;;
+  add-platform) shift; exclusive "$RUNS_WAIT" add_xcode_items platform "$@" ;;
+  add-component) shift; exclusive "$RUNS_WAIT" add_xcode_items component "$@" ;;
   run) shift; run_cmd command "$@" ;;
   build) shift; run_cmd build "$@" ;;
   xcui-test|test) shift; run_cmd xcui-test "$@" ;;
@@ -451,9 +467,9 @@ case ${1:-help} in
     run_cmd xcui-test --repo "$ROOT/fixtures/SmokeApp" -- \
       -project SmokeApp.xcodeproj -scheme SmokeApp test
     ;;
-  reset) shift 2>/dev/null || true; exclusive reset_cmd ;;
-  clean) shift; exclusive clean_cmd "$@" ;;
-  rollback) shift 2>/dev/null || true; exclusive rollback_cmd ;;
+  reset) shift 2>/dev/null || true; exclusive 0 reset_cmd ;;
+  clean) shift; exclusive 0 clean_cmd "$@" ;;
+  rollback) shift 2>/dev/null || true; exclusive "$RUNS_WAIT" rollback_cmd ;;
   help|-h|--help) usage ;;
   *) usage; die "unknown command: $1" ;;
 esac

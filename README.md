@@ -73,6 +73,7 @@ RUNNER=skills/tart-xcode-runner/references/tart-runner
 "$RUNNER" xcui-test --repo ~/dev/MyApp -- -scheme MyAppUITests test
 "$RUNNER" add-platform tvOS                         # add a simulator runtime
 "$RUNNER" reset                                     # clear disposable state
+"$RUNNER" clean --results 14                        # reclaim disk space
 "$RUNNER" rollback                                  # restore previous image
 ```
 

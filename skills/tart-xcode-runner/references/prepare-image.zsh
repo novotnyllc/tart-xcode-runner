@@ -53,6 +53,35 @@ integer IMAGE_LOCK_FD
 zsystem flock -t 0 -f IMAGE_LOCK_FD "$STATE/image.lock" ||
   die "another image operation is already running"
 
+# Booting the golden base (for validation) must not race a test run cloning
+# it: hold the runner lock and drain active runs first, then release so the
+# runner's own commands can take it again.
+RUNNER_LOCK="$STATE/runner.lock"
+integer RUNNER_LOCK_FD
+runner_quiesce() {
+  local deadline=$((SECONDS + ${TART_XCUI_RUNS_WAIT:-1800})) f pid active
+  : >>"$RUNNER_LOCK"
+  zsystem flock -t 600 -f RUNNER_LOCK_FD "$RUNNER_LOCK" ||
+    die "the runner lock is busy; retry shortly"
+  while true; do
+    active=
+    for f in "$STATE/runs"/*.pid(N); do
+      pid=$(<"$f")
+      if kill -0 "$pid" 2>/dev/null; then
+        active=$pid
+      else
+        rm -f "$f"
+      fi
+    done
+    [[ -n $active ]] || return 0
+    (( SECONDS < deadline )) || die "a run (pid $active) is active; retry later"
+    sleep 15
+  done
+}
+runner_release() {
+  zsystem flock -u "$RUNNER_LOCK_FD" 2>/dev/null || true
+}
+
 ensure_coordinate_plugin() {
   local patch_sha=$(/usr/bin/shasum -a 256 \
     "$REFERENCES/packer-plugin-tart-coordinate-click.patch" |
@@ -264,10 +293,13 @@ rebuild_image() {
   hash=$(/usr/bin/shasum -a 256 "$config" | /usr/bin/awk '{print $1}')
   if vm_exists "$BASE_VM" &&
       [[ -f $CONFIG_HASH && $(<"$CONFIG_HASH") == $hash ]]; then
+    runner_quiesce
     if validate_exact_vm "$BASE_VM" "$config"; then
+      runner_release
       print "Golden image already matches $config"
       return 0
     fi
+    runner_release
     print "Golden image checksum matched but runtime validation failed; rebuilding"
   fi
   strategy=$(json_value "$config" buildStrategy 2>/dev/null || print upgrade)
@@ -361,8 +393,10 @@ upgrade_image() {
   validate_exact_vm "$PACKED_VM" "$config" ||
     die "$PACKED_VM failed exact image validation"
   "$RUNNER" prepare --replace "$PACKED_VM"
+  runner_quiesce
   validate_exact_vm "$BASE_VM" "$config" ||
     die "$BASE_VM failed post-promotion validation"
+  runner_release
   delete_vm "$PACKED_VM"
   prune_stale_downloads "$installer_file" "$archive"
   print "Exact image promoted to $BASE_VM"

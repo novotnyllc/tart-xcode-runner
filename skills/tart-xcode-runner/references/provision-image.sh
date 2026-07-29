@@ -92,6 +92,9 @@ if [[ -f $agent_archive ]]; then
     /Library/LaunchAgents/org.openai.tart-guest-agent.plist 2>/dev/null || true
 fi
 
+# ponytail: these kcpassword bytes encode exactly "admin" — auto-login
+# breaks if TART_XCUI_GUEST_PASSWORD is overridden; generate the xor bytes
+# from the password if that ever needs to vary.
 print '00000000: 1ced 3f4a bcbc ba2c caca 4e82' |
   /usr/bin/xxd -r - /etc/kcpassword
 /usr/bin/defaults write /Library/Preferences/com.apple.loginwindow \

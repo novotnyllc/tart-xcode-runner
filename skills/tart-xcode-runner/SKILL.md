@@ -10,11 +10,12 @@ being asked: on the host they seize the user's display, keyboard, and focus
 while they work. Run them on the host only if the user explicitly insists
 after being warned.
 
-`CLAUDE_PLUGIN_ROOT` is set when this runs as an installed Claude Code plugin;
-from a source checkout, run commands at the repository root instead. Set:
+Installed plugins expose their root as `CLAUDE_PLUGIN_ROOT` (Claude Code) or
+`CODEX_PLUGIN_ROOT` (Codex); from a source checkout, run commands at the
+repository root instead. Set:
 
 ```sh
-PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-.}
+PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-.}}
 RUNNER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/tart-runner
 IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
 ```
@@ -190,7 +191,7 @@ structured failures. Never make the source share writable or build on VirtioFS.
 - Run `"$RUNNER" reset` after an interrupted invocation. It removes only the
   disposable clone and preserves the powered-off base.
 - Run `"$RUNNER" rollback` to swap the golden base with the previous validated
-  image. Each promotion preserves `tart-xcui-base-previous`.
+  image. Each promotion preserves one rollback image (`<base>-previous`).
 - Set `TART_XCUI_KEEP_FAILED=1` for one run when interactive inspection is
   necessary; reset it afterward.
 - Run `"$IMAGE_BUILDER" download OCI_IMAGE` to validate and promote a different
@@ -270,6 +271,9 @@ All knobs are environment variables; defaults in parentheses:
   ceilings (3600 / 7200)
 - `TART_XCUI_KEEP_FAILED=1` — retain a failed run's VM for inspection
 - `TART_XCUI_GUEST_PASSWORD` — guest admin password (`admin`)
+- `TART_XCUI_IMAGE` — OCI image for a bare `prepare` (pinned 26.5 digest)
+- `TART_XCUI_RUNS_WAIT` — how long image operations wait for active runs
+  to drain before giving up (1800)
 
 ## Storage
 
@@ -280,8 +284,9 @@ plugin, they stay across plugin upgrades under
 `TART_XCUI_DATA_HOME` to move all mutable data together, or
 `TART_XCUI_TART_HOME` to move only Tart's VM storage.
 
-These stores are separate: a checkout and an installed plugin do not see
-each other's VMs. Before building any image, run `"$RUNNER" doctor` — it
+Claude Code and Codex installs both default to the same Application Support
+store, so they share golden images. A source checkout is the exception —
+its store is separate from any installed plugin's. Before building any image, run `"$RUNNER" doctor` — it
 prints the active `TART_HOME` and whether the base VM exists. If the base is
 "missing" but a golden image was built before, look for another store (a
 plugin checkout's `.tart/`, or the Application Support path) and reuse it via
