@@ -1,6 +1,6 @@
 ---
 name: tart-xcode-runner
-description: Run any command, build, or test in a disposable macOS virtual machine (Tart). Use whenever the user wants work run in a VM, sandbox, container, clean room, or fresh/isolated/ephemeral/disposable environment, off-host, "not on my machine", or without polluting their system — especially xcodebuild, Xcode builds, unit tests, UI tests, XCUITests, iOS/macOS/simulator work, or trying something risky safely. ALWAYS use this by default for UI tests, XCUITests, and simulator-based test runs — even when the user doesn't mention a VM — because host UI automation steals their screen, keyboard, and focus. Also use to prepare, update, reset, roll back, or fetch logs and xcresult bundles from the test VM.
+description: Run any command, build, or test in a disposable macOS virtual machine (Tart). Use whenever the user wants work run in a VM, sandbox, container, clean room, or fresh/isolated/ephemeral/disposable environment, off-host, "not on my machine", or without polluting their system — especially xcodebuild, Xcode builds, unit tests, UI tests, XCUITests, iOS/macOS/simulator work, or trying something risky safely. ALWAYS use this by default for UI tests, XCUITests, and simulator-based test runs — even when the user doesn't mention a VM — because host UI automation steals their screen, keyboard, and focus. Also use to prepare, update, reset, roll back, or fetch logs and xcresult bundles from the test VM. Use when the user asks to create, request, install, verify, back up, or restore a macOS Developer ID Application certificate or signing identity, including Developer ID provisioning, restricted entitlements, Keychain access, or 1Password custody.
 ---
 
 # Tart Xcode Runner
@@ -18,6 +18,7 @@ repository root instead. Set:
 PLUGIN_ROOT=${CLAUDE_PLUGIN_ROOT:-${CODEX_PLUGIN_ROOT:-.}}
 RUNNER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/tart-runner
 IMAGE_BUILDER=$PLUGIN_ROOT/skills/tart-xcode-runner/references/prepare-image.zsh
+DEVELOPER_ID_SETUP=$PLUGIN_ROOT/skills/tart-xcode-runner/references/setup-developer-id.zsh
 ```
 
 ## Setup
@@ -103,15 +104,49 @@ The golden base also selects Xcode's CLI tools, completes first-launch tasks,
 accepts the license, installs the Metal toolchain, enables auto-login, and
 disables sleep, screensavers, and screen locking.
 
-### Optional Developer ID setup
+### Optional macOS Developer ID setup
 
 The current runner does not automate a Developer ID build/sign/return lane.
 Setup alone does not make entitlement-dependent tests pass. Keep using the
 credential-free ad-hoc path unless the project genuinely exercises a restricted
-entitlement such as Keychain Sharing.
+entitlement such as Keychain Sharing. This helper manages macOS Developer ID
+Application identities only; Developer ID does not sign iOS apps.
 
-Before implementing that lane, follow
-[Profile-backed entitlements](../../README.md#profile-backed-entitlements).
+When the user asks for signing setup, run the read-only preflight first:
+
+```sh
+"$DEVELOPER_ID_SETUP" status
+```
+
+If Keychain inspection is denied or indeterminate, request host authorization
+and rerun `status`; never interpret that failure as a missing identity or offer
+to consume another certificate slot. When setup is actually approved, run the
+guided command in one attached, persistent PTY or tmux session:
+
+```sh
+"$DEVELOPER_ID_SETUP" setup
+```
+
+Keep that entire invocation in the same session so the user can complete
+Keychain Access, Apple, `codesign`, and 1Password authorization prompts. The
+helper fails instead of silently skipping work when no terminal is attached.
+It opens the human-only CSR and Apple certificate steps, imports the resulting
+certificate, requires the exact certificate fingerprint to pair with its
+private key, and signs and strictly verifies a disposable executable before
+reporting success.
+
+After detecting the 1Password app and CLI, the helper offers a backup. It
+validates that the exported `.p12` is encrypted, contains a matching private
+key, and holds a trusted Developer ID Application certificate. It then creates
+one item in the explicitly selected account and restricted vault containing
+the encrypted archive plus its concealed export password, downloads both, and
+round-trip validates them. Record the printed item ID; restore requires that
+unambiguous ID and repeats exact-fingerprint validation and the signing probe.
+Run `"$DEVELOPER_ID_SETUP" --help` for separate `enroll`, `probe`, `store-p12`,
+and `restore-p12` commands.
+
+Before implementing the build/sign/return lane, follow
+[Profile-backed macOS entitlements](../../README.md#profile-backed-macos-entitlements).
 It is the canonical operator procedure for CSR and profile creation, 1Password
 transfer, multiple hosts, Keychain readiness, and certificate-slot tradeoffs.
 A Developer ID identity stays on approved signing hosts: never put a private

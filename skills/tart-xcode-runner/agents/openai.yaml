@@ -1,4 +1,4 @@
 interface:
   display_name: "Tart Xcode Runner"
-  short_description: "Run isolated Xcode builds and XCUITests in Tart"
-  default_prompt: "Use $tart-xcode-runner to run this command, build, or XCUITest in a disposable Tart VM and return its logs and result bundle."
+  short_description: "Run Tart tests or set up macOS Developer ID signing"
+  default_prompt: "Use $tart-xcode-runner to run this command, build, or XCUITest in a disposable Tart VM, or guide macOS Developer ID certificate setup and 1Password custody when requested."

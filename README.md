@@ -81,7 +81,7 @@ RUNNER=skills/tart-xcode-runner/references/tart-runner
 Each run prints its results directory containing `xcodebuild.log` (or
 `command.log`), `Result.xcresult`, and the exit status.
 
-## Profile-backed entitlements
+## Profile-backed macOS entitlements
 
 The current runner does not automate host signing. Do not create or export a
 Developer ID identity solely for this runner until the build/sign/return lane
@@ -92,6 +92,7 @@ that exercises a restricted entitlement such as Keychain Sharing instead
 needs a host-side [Developer ID Application
 identity](https://developer.apple.com/help/account/certificates/create-developer-id-certificates/)
 and a matching Developer ID provisioning profile.
+Developer ID is for macOS distribution; it does not sign iOS apps.
 
 This is a team signing identity, not a per-VM certificate. Developer ID
 profiles use `ProvisionsAllDevices`, so the VM needs neither an Apple Account
@@ -102,6 +103,22 @@ A Developer ID Installer identity is unnecessary unless you also produce a
 `.pkg`.
 
 ### Set up the first signing host
+
+The guided helper fails closed on inaccessible Keychain state, opens the
+human-only Apple steps, installs the exact requested certificate, proves its
+private key can sign, and offers a round-trip-verified 1Password backup:
+
+```sh
+skills/tart-xcode-runner/references/setup-developer-id.zsh setup
+```
+
+Run it with `status` for a read-only preflight or `--help` for separate
+enrollment, signing-probe, 1Password storage, and restore commands. The guided
+and mutating commands require an attached terminal. When an agent invokes one,
+it must keep the whole command in one persistent PTY or tmux session so
+Keychain and 1Password authorization prompts remain available. If `status`
+cannot inspect the Keychain, authorize it on the host and retry; do not assume
+the identity is absent.
 
 1. Inventory the team's existing Developer ID Application certificates before
    creating another; a team can have up to five. Reuse one only when the host
@@ -119,10 +136,10 @@ A Developer ID Installer identity is unnecessary unless you also produce a
    **Distribution > Developer ID** profile selecting that App ID and
    certificate, then download the profile to the signing host. Repeat only
    for other entitlement-bearing bundle IDs.
-4. Confirm the identity is present with
-   `security find-identity -v -p codesigning`. Configure the host Keychain
-   according to team policy, then prove that the actual runner context can
-   sign and verify a disposable test bundle noninteractively. Do not grant
+4. Run the helper's `probe` command. It binds the check to the certificate's
+   exact fingerprint, signs a disposable executable with the login Keychain,
+   and verifies the result strictly. Configure the host Keychain according to
+   team policy and approve only the actual signing process. Do not grant
    private-key access to all applications.
 
 Keep the private key on signing hosts. Never put it, a `.p12`, its password,
@@ -135,16 +152,18 @@ Choose one of these models:
 
 - **Share the identity through 1Password.** In Keychain Access **My
   Certificates**, export the identity as a strongly encrypted `.p12`; this
-  file contains both the certificate and private key. Store it as a Document
-  or attachment in a tightly restricted 1Password vault. The vault is the
-  security boundary if its import password is stored in the same item; use a
-  separately controlled vault or channel when independent protection is
-  required. On the other host, download and import it into a controlled
-  Keychain, verify it with a noninteractive signing probe, then delete the
-  downloaded file. This uses no additional certificate slot and the same
-  provisioning profile can be copied or downloaded, but compromise or
-  revocation affects every host sharing that key. See [1Password's file
-  storage guidance](https://support.1password.com/files/).
+  file contains both the certificate and private key. The helper's `store-p12`
+  command validates the archive before upload and stores it with its concealed
+  export password in one item in an explicitly selected account and restricted
+  vault. It then downloads and validates both before reporting success. Record
+  the printed item ID and use `restore-p12` on the other host; restore validates
+  the archive before import, requires the exact fingerprint afterward, proves
+  signing access, and removes its temporary copy. Because both factors are in
+  one item, that restricted vault is the security boundary. Use separately
+  controlled storage instead when policy requires independent protection.
+  Sharing uses no additional certificate slot, but compromise or revocation
+  affects every host using that key. See [1Password's file storage
+  guidance](https://support.1password.com/files/).
 - **Use a separate identity.** Create the CSR on the other host and issue
   another Developer ID Application certificate. This consumes another of the
   team's five slots and needs a profile that authorizes that certificate, but
