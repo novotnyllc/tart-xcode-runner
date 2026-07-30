@@ -129,8 +129,10 @@ the identity is absent.
    Request a Certificate From a Certificate Authority** to create the CSR.
    This creates the private key on that host. Have the Account Holder create
    the Developer ID Application certificate from that CSR, download the
-   `.cer` to the same host, and open it. The certificate and matching private
-   key together are the signing identity; the `.cer` alone cannot sign.
+   `.cer` to the same host, then give its path to the still-running helper.
+   Do not open it manually: the helper imports the validated certificate,
+   checks its exact fingerprint/private-key pairing, and proves signing access.
+   The `.cer` alone cannot sign.
 3. In Certificates, Identifiers & Profiles, register an explicit App ID and
    enable the required Developer-ID-supported capabilities. Create a
    **Distribution > Developer ID** profile selecting that App ID and

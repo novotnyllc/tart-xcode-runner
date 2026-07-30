@@ -384,21 +384,21 @@ one_password_sign_in() {
     die "1Password CLI is missing; install it from https://developer.1password.com/docs/cli/get-started/"
 
   local -a account_args
-  local whoami signin_output vault
+  local whoami session_token vault
   account_args=(--account "$OP_ACCOUNT_VALUE")
   if ! whoami=$(op whoami "${account_args[@]}" --format json 2>/dev/null); then
     if one_password_app_installed; then
       print "Unlock 1Password and approve CLI access if prompted."
     else
       print "1Password app not found; starting the CLI's manual sign-in flow."
+      print "If this account is not configured yet, stop and run 'op account add' first."
     fi
-    signin_output=$(op signin "${account_args[@]}") ||
+    session_token=$(op signin "${account_args[@]}" --raw) ||
       die "1Password sign-in failed"
-    if [[ -n $signin_output ]]; then
-      [[ $signin_output == export\ OP_SESSION_* ]] ||
-        die "1Password returned an unexpected manual sign-in response"
-      eval "$signin_output"
-    fi
+    [[ -n $session_token ]] ||
+      die "1Password sign-in returned an empty session token"
+    export OP_SESSION=$session_token
+    unset session_token
     whoami=$(op whoami "${account_args[@]}" --format json) ||
       die "1Password authentication failed"
   fi
@@ -547,10 +547,15 @@ offer_one_password_backup() {
     print "1Password app detected."
   else
     print "1Password app was not detected; the CLI can still use manual sign-in."
+    print "Run 'op account add' first if the intended account is not configured."
   fi
   if ! command -v op >/dev/null; then
     print "Install 1Password CLI with: brew install 1password-cli"
-    print "Then enable 1Password > Settings > Developer > Integrate with 1Password CLI."
+    if one_password_app_installed; then
+      print "Then enable 1Password > Settings > Developer > Integrate with 1Password CLI."
+    else
+      print "Then configure the intended account with: op account add"
+    fi
     print "Guide: https://developer.1password.com/docs/cli/get-started/"
     print "Then export the identity and run this helper's store-p12 command."
     return

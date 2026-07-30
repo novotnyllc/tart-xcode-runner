@@ -135,14 +135,17 @@ certificate, requires the exact certificate fingerprint to pair with its
 private key, and signs and strictly verifies a disposable executable before
 reporting success.
 
-After detecting the 1Password app and CLI, the helper offers a backup. It
-validates that the exported `.p12` is encrypted, contains a matching private
-key, and holds a trusted Developer ID Application certificate. It then creates
-one item in the explicitly selected account and restricted vault containing
-the encrypted archive plus its concealed export password, downloads both, and
-round-trip validates them. Record the printed item ID; restore requires that
-unambiguous ID and repeats exact-fingerprint validation and the signing probe.
-Run `"$DEVELOPER_ID_SETUP" --help` for separate `enroll`, `probe`, `store-p12`,
+The 1Password CLI is required for backup; the desktop app is optional because
+the helper also supports CLI-only sign-in. Without the desktop app, configure
+the intended account once with `op account add` before running the helper. When
+the CLI is present, the helper offers a backup and validates that the exported
+`.p12` is encrypted, contains a matching private key, and holds a trusted
+Developer ID Application certificate. It then creates one item in the
+explicitly selected account and restricted vault containing the encrypted
+archive plus its concealed export password, downloads both, and round-trip
+validates them. Record the printed item ID; restore requires that unambiguous
+ID and repeats exact-fingerprint validation and the signing probe. Run
+`"$DEVELOPER_ID_SETUP" --help` for separate `enroll`, `probe`, `store-p12`,
 and `restore-p12` commands.
 
 Before implementing the build/sign/return lane, follow
