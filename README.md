@@ -1,7 +1,13 @@
+<img src="assets/icon.png" alt="Tart Xcode Runner" width="140" align="right"/>
+
 # Tart Xcode Runner
 
+**Your agent runs the UI tests. Your screen stays yours.**
+
 A Codex and Claude Code plugin that runs commands, Xcode builds, and XCUITests
-in disposable [Tart](https://tart.run) macOS VMs instead of on your Mac.
+in disposable [Tart](https://tart.run) macOS VMs instead of on your Mac —
+every run a pristine clone, nothing touching your host toolchain, caches, or
+keychain.
 
 ## Why
 
