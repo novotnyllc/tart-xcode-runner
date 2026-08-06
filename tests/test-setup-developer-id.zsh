@@ -404,8 +404,8 @@ restore_output_path=$(sed -n 's/^output://p' "$TEST_STATE/op-output.log" | tail 
   fail "restore temporary identity material was not removed"
 assert_no_helper_temps
 
-grep -q "guided macOS Developer ID signing setup" "$ROOT/.claude-plugin/marketplace.json" ||
-  fail "Claude marketplace metadata is stale"
+grep -q "guided macOS Developer ID signing setup" "$ROOT/.claude-plugin/plugin.json" ||
+  fail "Claude plugin metadata is stale"
 grep -q "desktop app is optional" "$ROOT/skills/tart-xcode-runner/SKILL.md" ||
   fail "skill guidance incorrectly requires the 1Password desktop app"
 grep -q "op account add" "$ROOT/skills/tart-xcode-runner/SKILL.md" ||
