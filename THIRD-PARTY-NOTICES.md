@@ -29,6 +29,12 @@ runtime dependencies, not incorporations, and carry no obligation here.
   `references/prepare-image.zsh`, which clones and builds the plugin locally
   at image-prep time. No upstream source is redistributed by this repository
   — only the patch.
+- **MPL-2.0 source availability (§3.4):** the patch is a Modification of
+  MPL-2.0-covered files and is itself made available under MPL-2.0. Its
+  complete Source Code Form is the patch file itself together with the
+  upstream repository at the pinned commit above; the patch is deliberately
+  kept header-free so `git apply` consumes it unchanged, and this notice
+  serves as its license notice.
 - **Copyright:** Copyright (c) 2022 Cirrus Labs, Inc.
 - **License:** Mozilla Public License 2.0 —
   https://www.mozilla.org/en-US/MPL/2.0/. MPL-2.0 is a file-level copyleft:
