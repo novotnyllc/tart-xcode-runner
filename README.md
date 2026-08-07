@@ -241,4 +241,9 @@ authorization are deliberate one-time exceptions.
 
 ## License
 
-MIT
+MIT — see [LICENSE](LICENSE).
+
+The beta-image Packer template is derived from Cirrus Labs' macOS image
+templates (MIT); the bundled `packer-plugin-tart` patch modifies MPL-2.0
+code and stays under MPL-2.0. Both are itemized in
+[THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md).
