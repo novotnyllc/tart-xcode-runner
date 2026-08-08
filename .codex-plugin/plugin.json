@@ -28,7 +28,7 @@
     "shortDescription": "Reusable macOS VMs for isolated Xcode builds and XCUITests",
     "longDescription": "Build Apple-platform projects and run XCUITests away from the host in reusable Tart macOS VMs. Create exact macOS and Xcode images, run work in disposable clones, retrieve logs and xcresult bundles, reset or roll back safely, and guide approved macOS Developer ID certificate setup and 1Password custody.",
     "developerName": "Claire Novotny LLC",
-    "category": "Developer Tools",
+    "category": "Development",
     "capabilities": [
       "Read",
       "Write",

@@ -28,3 +28,10 @@ only the `version` in the marketplace manifests and `plugin-versions.json`
 needs a manual bump, and `scripts/repin check` will flag it if you forget.
 
 Never treat an installed plugin cache as the source repository.
+
+## Documentation-only exemption
+
+Documentation-only changes (`docs/**`, `README.md`, `UPSTREAM.md`) need no
+version bump, no marketplace repin, and no fleet redeploy/convergence pass —
+commit and push them directly. Only changes to the manifests, skills, or
+commands couple to the release machinery above.
