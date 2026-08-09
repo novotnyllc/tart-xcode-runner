@@ -1,0 +1,22 @@
+# Line endings are normalized to LF in the repository and on checkout, so a
+# checkout is byte-identical on every platform. Windows-native script types
+# are the deliberate exception and check out as CRLF.
+* text=auto eol=lf
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.psd1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Binary assets: never touch their bytes.
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.gif  binary
+*.ico  binary
+*.icns binary
+*.pdf  binary
+*.zip  binary
+*.gz   binary
+*.woff  binary
+*.woff2 binary
