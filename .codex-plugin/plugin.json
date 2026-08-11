@@ -1,6 +1,6 @@
 {
   "name": "tart-xcode-runner",
-  "version": "0.4.10",
+  "version": "0.4.11",
   "description": "Run isolated Xcode builds and XCUITests in Tart VMs, with guided macOS Developer ID signing setup.",
   "author": {
     "name": "Claire Novotny LLC",
@@ -42,7 +42,7 @@
       "Help me request, install, verify, and back up a macOS Developer ID Application identity."
     ],
     "brandColor": "#2563EB",
-    "composerIcon": "./assets/icon.svg",
-    "logo": "./assets/icon.svg"
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png"
   }
 }
