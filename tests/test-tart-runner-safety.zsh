@@ -142,7 +142,60 @@ test_interrupted_run_after_host_panic_quarantines_future_runs() {
     fail "explicit recovery did not clear host quarantine"
 }
 
+test_run_and_exec_share_private_control_socket_directory() {
+  local case_root="$TMP/private-control-socket"
+  local repo="$case_root/repo" data="$case_root/data" bin="$case_root/bin"
+  local log="$case_root/tart.log" output="$case_root/output.log"
+  local caller="$case_root/caller"
+  mkdir -p "$repo" "$bin" "$caller"
+  print source >"$repo/App.swift"
+  cat >"$bin/tart" <<'EOF'
+#!/bin/zsh
+set -eu
+print -r -- "$PWD|$*" >>"$FAKE_TART_LOG"
+case ${1:-} in
+  --version) print 'test-tart 1.0' ;;
+  list) print 'base' ;;
+  clone) ;;
+  run)
+    : >control.sock
+    sleep 3
+    rm -f control.sock
+    ;;
+  exec)
+    [[ -e control.sock ]] || exit 71
+    ;;
+  stop|delete) ;;
+  *) exit 70 ;;
+esac
+EOF
+  chmod +x "$bin/tart"
+  : >"$log"
+
+  (
+    cd "$caller"
+    env PATH="$bin:$PATH" FAKE_TART_LOG="$log" \
+      TART_XCUI_DATA_HOME="$data" TART_XCUI_RESULTS="$data/results" \
+      TART_XCUI_BASE_VM=base TART_XCUI_RUN_TIMEOUT=30 \
+      "$RUNNER" run --repo "$repo" -- /usr/bin/true >"$output" 2>&1
+  ) || fail "private control-socket run failed"
+
+  [[ ! -e "$caller/control.sock" ]] || fail "Tart control socket polluted caller directory"
+  [[ ! -e "$repo/control.sock" ]] || fail "Tart control socket polluted repository"
+  local run_cwd exec_cwd
+  run_cwd=$(sed -n '/|run /{s/|.*//;p;q;}' "$log")
+  exec_cwd=$(sed -n '/|exec /{s/|.*//;p;q;}' "$log")
+  [[ -n $run_cwd && $run_cwd == "$exec_cwd" ]] ||
+    fail "Tart run and exec did not share one control-socket directory"
+  local normalized_data=${data:A}
+  local normalized_run_cwd=${run_cwd:A}
+  [[ $normalized_run_cwd == "$normalized_data/.state/boots"/* ]] ||
+    fail "Tart control socket directory was not runner-owned"
+  [[ ! -e $run_cwd ]] || fail "runner-owned control socket directory was not cleaned"
+}
+
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
+test_run_and_exec_share_private_control_socket_directory
 print 'tart runner safety tests passed'

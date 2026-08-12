@@ -34,6 +34,7 @@ WORK_VM=
 RUN_ID=
 RUN_RESULT_DIR=
 RUN_TART_LOG=
+RUN_BOOT_DIR=
 RUN_EXIT_CODE=1
 
 zmodload zsh/system
@@ -73,7 +74,28 @@ die() {
 }
 
 prepare_dirs() {
-  mkdir -p "$TART_HOME" "$RESULTS" "$STATE" "$RUNS_DIR"
+  mkdir -p "$TART_HOME" "$RESULTS" "$STATE" "$RUNS_DIR" "$STATE/boots"
+}
+
+tart_from() {
+  local directory=$1
+  shift
+  (cd "$directory" && tart "$@")
+}
+
+fresh_boot_dir() {
+  local directory="$STATE/boots/$1"
+  [[ $directory == "$STATE/boots/"* ]] || die "refusing unsafe boot directory: $directory"
+  rm -rf -- "$directory"
+  mkdir -p "$directory"
+  print -r -- "$directory"
+}
+
+remove_boot_dir() {
+  local directory=$1
+  [[ -z $directory ]] && return 0
+  [[ $directory == "$STATE/boots/"* ]] || die "refusing unsafe boot directory cleanup: $directory"
+  rm -rf -- "$directory"
 }
 
 lock_runner() {
@@ -197,10 +219,10 @@ delete_vm() {
 }
 
 wait_for_agent() {
-  local vm=$1 run_pid=${2:-}
+  local vm=$1 run_pid=${2:-} boot_dir=${3:-$PWD}
   local deadline=$((SECONDS + READY_TIMEOUT))
 
-  until tart exec "$vm" /usr/bin/true >/dev/null 2>&1; do
+  until tart_from "$boot_dir" exec "$vm" /usr/bin/true >/dev/null 2>&1; do
     [[ -z $run_pid ]] || kill -0 "$run_pid" 2>/dev/null || return 1
     (( SECONDS < deadline )) || return 1
     sleep 2
@@ -269,7 +291,7 @@ doctor() {
 }
 
 prepare_base() {
-  local replace=0 image=$IMAGE run_pid
+  local replace=0 image=$IMAGE run_pid boot_dir
   [[ ${1:-} == --replace ]] && {
     replace=1
     shift
@@ -287,13 +309,14 @@ prepare_base() {
   print "Cloning candidate from $image"
   tart clone "$image" "$CANDIDATE_VM"
   tart set "$CANDIDATE_VM" --cpu "$CPU" --memory "$MEMORY" --disk-size "$DISK_SIZE"
+  boot_dir=$(fresh_boot_dir "prepare-$CANDIDATE_VM")
   trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
-  tart run --no-graphics "$CANDIDATE_VM" >"$STATE/prepare.log" 2>&1 &
+  tart_from "$boot_dir" run --no-graphics "$CANDIDATE_VM" >"$STATE/prepare.log" 2>&1 &
   run_pid=$!
   print "Waiting for the guest agent..."
-  wait_for_agent "$CANDIDATE_VM" "$run_pid" ||
+  wait_for_agent "$CANDIDATE_VM" "$run_pid" "$boot_dir" ||
     die "candidate failed to start; see $STATE/prepare.log"
-  tart exec "$CANDIDATE_VM" /bin/zsh -lc '
+  tart_from "$boot_dir" exec "$CANDIDATE_VM" /bin/zsh -lc '
     set -e
     /usr/bin/xcodebuild -version
     /usr/bin/xcodebuild -checkFirstLaunchStatus
@@ -307,6 +330,7 @@ prepare_base() {
     test "$(/usr/bin/defaults -currentHost read com.apple.screensaver idleTime)" = 0
   '
   stop_vm "$CANDIDATE_VM"
+  remove_boot_dir "$boot_dir"
   trap - EXIT INT TERM HUP
 
   promote_candidate "$CANDIDATE_VM"
@@ -315,7 +339,7 @@ prepare_base() {
 }
 
 add_xcode_items() {
-  local kind=$1 run_pid item log_name
+  local kind=$1 run_pid item log_name boot_dir
   shift
   (( $# > 0 )) || die "add-$kind requires at least one value"
   vm_exists "$BASE_VM" || die "base VM is missing; run prepare"
@@ -332,27 +356,29 @@ add_xcode_items() {
   stop_vm "$CANDIDATE_VM"
   delete_vm "$CANDIDATE_VM"
   tart clone "$BASE_VM" "$CANDIDATE_VM"
+  boot_dir=$(fresh_boot_dir "add-$kind-$CANDIDATE_VM")
   trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
-  tart run --no-graphics "$CANDIDATE_VM" >"$STATE/$log_name" 2>&1 &
+  tart_from "$boot_dir" run --no-graphics "$CANDIDATE_VM" >"$STATE/$log_name" 2>&1 &
   run_pid=$!
-  wait_for_agent "$CANDIDATE_VM" "$run_pid" ||
+  wait_for_agent "$CANDIDATE_VM" "$run_pid" "$boot_dir" ||
     die "candidate failed to start; see $STATE/$log_name"
   for item in "$@"; do
     print "Installing $item..."
     if [[ $kind == platform ]]; then
-      tart exec "$CANDIDATE_VM" /bin/zsh -c \
+      tart_from "$boot_dir" exec "$CANDIDATE_VM" /bin/zsh -c \
         'print -r -- "$1" | /usr/bin/sudo -S /usr/bin/xcodebuild -downloadPlatform "$2"' \
         -- "$GUEST_PASSWORD" "$item"
-      tart exec "$CANDIDATE_VM" /bin/zsh -lc \
+      tart_from "$boot_dir" exec "$CANDIDATE_VM" /bin/zsh -lc \
         "/usr/bin/xcrun simctl list runtimes available | /usr/bin/grep -Fq '$item'"
     else
-      tart exec "$CANDIDATE_VM" /bin/zsh -c \
+      tart_from "$boot_dir" exec "$CANDIDATE_VM" /bin/zsh -c \
         'print -r -- "$1" | /usr/bin/sudo -S /usr/bin/xcodebuild -downloadComponent "$2"' \
         -- "$GUEST_PASSWORD" "$item"
-      tart exec "$CANDIDATE_VM" /usr/bin/xcrun -f metal >/dev/null
+      tart_from "$boot_dir" exec "$CANDIDATE_VM" /usr/bin/xcrun -f metal >/dev/null
     fi
   done
   stop_vm "$CANDIDATE_VM"
+  remove_boot_dir "$boot_dir"
   trap - EXIT INT TERM HUP
 
   promote_candidate "$CANDIDATE_VM"
@@ -370,6 +396,7 @@ cleanup_work_vm() {
     delete_vm "$WORK_VM"
     print "tart: deleted disposable VM $WORK_VM; golden image $BASE_VM untouched"
   fi
+  remove_boot_dir "$RUN_BOOT_DIR"
   [[ -z $RUN_ID ]] || rm -f "$RUNS_DIR/$RUN_ID.pid"
 }
 
@@ -402,6 +429,7 @@ run_cmd() {
   mkdir -p "$result_dir"
   RUN_RESULT_DIR=$result_dir
   RUN_TART_LOG="$STATE/$RUN_ID.tart.log"
+  RUN_BOOT_DIR=$(fresh_boot_dir "$RUN_ID")
   if [[ $kind == command ]]; then
     helper=run-command.sh
     log_name=command.log
@@ -428,12 +456,15 @@ run_cmd() {
   local run_args=(--no-graphics --dir="artifacts:$result_dir")
   (( has_repo == 0 )) || run_args+=(--dir="source:${repo}:ro")
   print "tart: booting $WORK_VM headless; the host stays free"
-  tart run "${run_args[@]}" "$WORK_VM" >"$RUN_TART_LOG" 2>&1 &
+  # Tart 2.34.0 resolves its control socket relative to the launch directory
+  # and can fail to remove stale sockets there (openai/tart#1224). Run and
+  # exec from one unique runner-owned directory, never the caller's repo.
+  tart_from "$RUN_BOOT_DIR" run "${run_args[@]}" "$WORK_VM" >"$RUN_TART_LOG" 2>&1 &
   run_pid=$!
-  wait_for_agent "$WORK_VM" "$run_pid" ||
+  wait_for_agent "$WORK_VM" "$run_pid" "$RUN_BOOT_DIR" ||
     die "working VM failed to start; see $RUN_TART_LOG"
-  print "tart: guest ready — macOS $(tart exec "$WORK_VM" /usr/bin/sw_vers -productVersion 2>/dev/null)" \
-    "($(tart exec "$WORK_VM" /usr/bin/sw_vers -buildVersion 2>/dev/null)), running in the VM"
+  print "tart: guest ready — macOS $(tart_from "$RUN_BOOT_DIR" exec "$WORK_VM" /usr/bin/sw_vers -productVersion 2>/dev/null)" \
+    "($(tart_from "$RUN_BOOT_DIR" exec "$WORK_VM" /usr/bin/sw_vers -buildVersion 2>/dev/null)), running in the VM"
 
   (
     sleep "$RUN_TIMEOUT"
@@ -444,11 +475,11 @@ run_cmd() {
 
   set +e
   if [[ $kind == command ]]; then
-    tart exec "$WORK_VM" /bin/zsh \
+    tart_from "$RUN_BOOT_DIR" exec "$WORK_VM" /bin/zsh \
       "/Volumes/My Shared Files/artifacts/$helper" "$RUN_ID" "$has_repo" "$@" \
       2>&1 | tee "$result_dir/$log_name"
   else
-    tart exec "$WORK_VM" /bin/zsh \
+    tart_from "$RUN_BOOT_DIR" exec "$WORK_VM" /bin/zsh \
       "/Volumes/My Shared Files/artifacts/$helper" "$RUN_ID" "$kind" "$@" \
       2>&1 | tee "$result_dir/$log_name"
   fi
