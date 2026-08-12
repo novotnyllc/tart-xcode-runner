@@ -246,7 +246,10 @@ structured failures. Never make the source share writable or build on VirtioFS.
 ## Recover or update
 
 - Run `"$RUNNER" reset` after an interrupted invocation. It removes only the
-  disposable clone and preserves the powered-off base.
+  disposable clone and preserves the powered-off base. If `doctor` reports a
+  host-crash quarantine, inspect the named panic first. Only then may the user
+  explicitly authorize `"$RUNNER" reset --acknowledge-host-crash`; never infer
+  that acknowledgement or clear the quarantine automatically.
 - Run `"$RUNNER" rollback` to swap the golden base with the previous validated
   image. Each promotion preserves one rollback image (`<base>-previous`).
 - Set `TART_XCUI_KEEP_FAILED=1` for one run when interactive inspection is
@@ -323,6 +326,9 @@ All knobs are environment variables; defaults in parentheses:
   resources applied by `prepare` when the config doesn't set them
   (8 / 24576 / 150); config values win on rebuilds
 - `TART_XCUI_RUN_TIMEOUT` — per-run watchdog seconds (7200)
+- `TART_XCUI_MAX_REPO_FILES` — maximum source files and symlinks accepted
+  before any Tart command starts (100000); generated `.build`, `DerivedData*`,
+  and result trees are excluded from this count and from the guest copy
 - `TART_XCUI_READY_TIMEOUT` — VM boot wait seconds (300)
 - `TART_XCUI_PACKER_TIMEOUT`, `TART_XCUI_UPGRADE_TIMEOUT` — image build
   ceilings (3600 / 7200)

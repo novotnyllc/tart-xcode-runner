@@ -27,6 +27,9 @@ RESULTS=${TART_XCUI_RESULTS:-"$DATA_HOME/results"}
 STATE="$DATA_HOME/.state"
 RUNS_DIR="$STATE/runs"
 LOCK="$STATE/runner.lock"
+HOST_CRASH_QUARANTINE="$STATE/host-crash-quarantine"
+DIAGNOSTIC_REPORTS=${TART_XCUI_DIAGNOSTIC_REPORTS:-/Library/Logs/DiagnosticReports}
+MAX_REPO_FILES=${TART_XCUI_MAX_REPO_FILES:-100000}
 WORK_VM=
 RUN_ID=
 RUN_RESULT_DIR=
@@ -47,7 +50,7 @@ Usage:
   tart-runner build --repo PATH -- XCODEBUILD_ARGS...
   tart-runner xcui-test --repo PATH -- XCODEBUILD_ARGS...
   tart-runner smoke
-  tart-runner reset
+  tart-runner reset [--acknowledge-host-crash]
   tart-runner clean [--results DAYS] [--images]
   tart-runner rollback
 
@@ -59,7 +62,8 @@ Environment:
   TART_XCUI_DATA_HOME, TART_XCUI_TART_HOME, TART_XCUI_BASE_VM (select a
   golden image; candidate/previous/work VM names derive from it),
   TART_XCUI_IMAGE, TART_XCUI_CPU, TART_XCUI_MEMORY, TART_XCUI_DISK_SIZE,
-  TART_XCUI_RUN_TIMEOUT, TART_XCUI_RESULTS, TART_XCUI_KEEP_FAILED=1
+  TART_XCUI_RUN_TIMEOUT, TART_XCUI_RESULTS, TART_XCUI_KEEP_FAILED=1,
+  TART_XCUI_MAX_REPO_FILES (100000)
 EOF
 }
 
@@ -110,6 +114,67 @@ ensure_no_active_runs() {
 need_tart() {
   command -v tart >/dev/null ||
     die "Tart is missing; run: brew tap openai/tools && brew trust --tap openai/tools && brew install openai/tools/tart"
+}
+
+runner_pid_is_active() {
+  local marker=$1 pid command
+  pid=$(sed -n '1s/[^0-9].*$//p' "$marker" 2>/dev/null || true)
+  [[ $pid == <-> ]] || return 1
+  kill -0 "$pid" 2>/dev/null || return 1
+  command=$(ps -p "$pid" -o command= 2>/dev/null || true)
+  [[ $command == *"$SCRIPT"* ]]
+}
+
+panic_after_marker() {
+  local marker=$1
+  local -a roots
+  roots=()
+  [[ -d $DIAGNOSTIC_REPORTS ]] && roots+=("$DIAGNOSTIC_REPORTS")
+  [[ -d "$DIAGNOSTIC_REPORTS/Retired" ]] && roots+=("$DIAGNOSTIC_REPORTS/Retired")
+  (( ${#roots} )) || return 0
+  find "${roots[@]}" -maxdepth 1 -type f -name '*.panic' -newer "$marker" \
+    -print -quit 2>/dev/null || true
+}
+
+record_interrupted_run_state() {
+  local marker panic run_id
+  for marker in "$RUNS_DIR"/*.pid(N); do
+    runner_pid_is_active "$marker" && continue
+    panic=$(panic_after_marker "$marker")
+    [[ -n $panic ]] || continue
+    run_id=${marker:t:r}
+    if [[ ! -f $HOST_CRASH_QUARANTINE ]]; then
+      {
+        print "run=$run_id"
+        print "panic=${panic:t}"
+        print "detected=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      } >"$HOST_CRASH_QUARANTINE"
+    fi
+  done
+}
+
+refuse_unsafe_state() {
+  local marker
+  record_interrupted_run_state
+  if [[ -f $HOST_CRASH_QUARANTINE ]]; then
+    die "host crash quarantine is active; inspect the panic and run 'tart-runner reset --acknowledge-host-crash' only after the host risk is understood"
+  fi
+  for marker in "$RUNS_DIR"/*.pid(N); do
+    runner_pid_is_active "$marker" && continue
+    die "an earlier run ended without cleanup (${marker:t:r}); inspect its result and run 'tart-runner reset' before starting another VM"
+  done
+}
+
+preflight_repo() {
+  local repo=$1 overflow
+  [[ $MAX_REPO_FILES == <-> ]] && (( MAX_REPO_FILES > 0 )) ||
+    die "TART_XCUI_MAX_REPO_FILES must be a positive integer"
+  overflow=$(find "$repo" \
+    -type d \( -name .git -o -name .build -o -name 'DerivedData*' -o -name results \) -prune -o \
+    \( -type f -o -type l \) -print 2>/dev/null |
+    sed -n "$(( MAX_REPO_FILES + 1 )){p;q;}")
+  [[ -z $overflow ]] ||
+    die "repository payload exceeds the safe file limit ($MAX_REPO_FILES); remove or relocate generated outputs before starting a VM"
 }
 
 vm_exists() {
@@ -173,12 +238,27 @@ doctor() {
       print "base VM:    $BASE_VM (missing; run prepare)"
       failed=1
     }
-  local f pid active=0
+  local f pid active=0 interrupted=0
+  record_interrupted_run_state
   for f in "$RUNS_DIR"/*.pid(N); do
-    pid=$(<"$f")
-    kill -0 "$pid" 2>/dev/null && (( ++active ))
+    pid=$(sed -n '1s/[^0-9].*$//p' "$f" 2>/dev/null || true)
+    if runner_pid_is_active "$f"; then
+      (( ++active ))
+    else
+      (( ++interrupted ))
+    fi
   done
   print "active runs: $active"
+  print "interrupted runs: $interrupted"
+  if [[ -f $HOST_CRASH_QUARANTINE ]]; then
+    print "host safety: QUARANTINED (panic followed an interrupted run)"
+    failed=1
+  elif (( interrupted )); then
+    print "host safety: recovery required (run reset before another VM)"
+    failed=1
+  else
+    print "host safety: ready"
+  fi
   security show-keychain-info "$HOME/Library/Keychains/login.keychain-db" >/dev/null 2>&1 &&
     print "keychain:   login keychain available" ||
     print "keychain:   WARNING: unlock login.keychain before headless VM starts"
@@ -308,6 +388,8 @@ run_cmd() {
   [[ $kind == command || $has_repo == 1 ]] || die "$kind requires --repo PATH"
 
   prepare_dirs
+  refuse_unsafe_state
+  (( has_repo == 0 )) || preflight_repo "$repo"
   need_tart
   vm_exists "$BASE_VM" || die "base VM is missing; run prepare"
 
@@ -327,13 +409,16 @@ run_cmd() {
   cp "$REFERENCES/$helper" "$result_dir/$helper"
   print "results: $result_dir"
 
+  # Register before the first Tart mutation. A host panic during clone or boot
+  # must leave durable evidence for the next invocation to fail closed on.
+  print $$ >"$RUNS_DIR/$RUN_ID.pid"
+
   # The lock covers only the clone: cheap, and it serializes against image
   # promotion. The long build/test phase runs unlocked so runs can overlap.
   # Generous wait: an image operation may hold the lock for several minutes.
   lock_runner 900
   print "tart: cloning golden image $BASE_VM -> disposable VM $WORK_VM"
   tart clone "$BASE_VM" "$WORK_VM"
-  print $$ >"$RUNS_DIR/$RUN_ID.pid"
   unlock_runner
 
   trap 'RUN_EXIT_CODE=130; cleanup_work_vm; exit 130' INT TERM HUP
@@ -399,6 +484,29 @@ reset_cmd() {
   print "Disposable VM state reset; base preserved: $BASE_VM"
 }
 
+reset_entry() {
+  local acknowledge=0
+  while (( $# )); do
+    case $1 in
+      --acknowledge-host-crash) acknowledge=1; shift ;;
+      *) die "unknown reset argument: $1" ;;
+    esac
+  done
+  prepare_dirs
+  record_interrupted_run_state
+  if [[ -f $HOST_CRASH_QUARANTINE ]] && (( ! acknowledge )); then
+    die "host crash quarantine is active; inspect the panic, then use 'reset --acknowledge-host-crash' to explicitly accept recovery"
+  fi
+  need_tart
+  lock_runner 60
+  ensure_no_active_runs 0
+  reset_cmd
+  if (( acknowledge )); then
+    rm -f "$HOST_CRASH_QUARANTINE"
+    print "Host crash quarantine acknowledged and cleared"
+  fi
+}
+
 clean_cmd() {
   local results_days= images=0 cache_days=30
   while (( $# )); do
@@ -447,6 +555,7 @@ exclusive() {
   local wait=$1
   shift
   prepare_dirs
+  refuse_unsafe_state
   need_tart
   lock_runner 60
   ensure_no_active_runs "$wait"
@@ -467,7 +576,7 @@ case ${1:-help} in
     run_cmd xcui-test --repo "$ROOT/fixtures/SmokeApp" -- \
       -project SmokeApp.xcodeproj -scheme SmokeApp test
     ;;
-  reset) shift 2>/dev/null || true; exclusive 0 reset_cmd ;;
+  reset) shift; reset_entry "$@" ;;
   clean) shift; exclusive 0 clean_cmd "$@" ;;
   rollback) shift 2>/dev/null || true; exclusive "$RUNS_WAIT" rollback_cmd ;;
   help|-h|--help) usage ;;
