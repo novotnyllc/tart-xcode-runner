@@ -96,8 +96,10 @@ test_interrupted_run_after_host_panic_quarantines_future_runs() {
   print source >"$repo/App.swift"
   print 999999 >"$data/.state/runs/20260811T234802Z-12193.pid"
   touch -t 202608111648 "$data/.state/runs/20260811T234802Z-12193.pid"
-  print 'panic: initproc exited' >"$diagnostics/Retired/host.panic"
+  print 'panic(cpu 1): initproc exited' >"$diagnostics/Retired/host.panic"
   touch -t 202608111653 "$diagnostics/Retired/host.panic"
+  print 'diagnostic report bookkeeping' >"$diagnostics/.contents.panic"
+  touch -t 202608111654 "$diagnostics/.contents.panic"
   make_fake_tart "$bin" "$log"
 
   run_failing "$output" env \
@@ -110,6 +112,8 @@ test_interrupted_run_after_host_panic_quarantines_future_runs() {
     fail "host crash did not trip the quarantine"
   [[ -f "$data/.state/host-crash-quarantine" ]] ||
     fail "host crash quarantine was not persisted"
+  grep -Fq 'panic=host.panic' "$data/.state/host-crash-quarantine" ||
+    fail "quarantine selected hidden bookkeeping instead of the real panic"
   [[ ! -s $log ]] || fail "Tart was invoked after interrupted host crash evidence"
 
   rm -f "$data/.state/runs/20260811T234802Z-12193.pid"

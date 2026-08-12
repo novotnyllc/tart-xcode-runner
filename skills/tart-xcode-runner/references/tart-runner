@@ -126,14 +126,17 @@ runner_pid_is_active() {
 }
 
 panic_after_marker() {
-  local marker=$1
+  local marker=$1 candidate
   local -a roots
   roots=()
   [[ -d $DIAGNOSTIC_REPORTS ]] && roots+=("$DIAGNOSTIC_REPORTS")
   [[ -d "$DIAGNOSTIC_REPORTS/Retired" ]] && roots+=("$DIAGNOSTIC_REPORTS/Retired")
-  (( ${#roots} )) || return 0
-  find "${roots[@]}" -maxdepth 1 -type f -name '*.panic' -newer "$marker" \
-    -print -quit 2>/dev/null || true
+  for candidate in ${^roots}/*.panic(N); do
+    [[ $candidate -nt $marker ]] || continue
+    grep -q '^panic(' "$candidate" 2>/dev/null || continue
+    print -r -- "$candidate"
+    return 0
+  done
 }
 
 record_interrupted_run_state() {
