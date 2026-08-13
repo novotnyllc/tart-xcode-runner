@@ -247,9 +247,10 @@ structured failures. Never make the source share writable or build on VirtioFS.
 
 - Run `"$RUNNER" reset` after an interrupted invocation. It removes only the
   disposable clone and preserves the powered-off base. If `doctor` reports a
-  host-crash quarantine, inspect the named panic first. Only then may the user
-  explicitly authorize `"$RUNNER" reset --acknowledge-host-crash`; never infer
-  that acknowledgement or clear the quarantine automatically.
+  host-crash quarantine, inspect the named panic or login-session crash report
+  first. Only then may the user explicitly authorize
+  `"$RUNNER" reset --acknowledge-host-crash`; never infer that acknowledgement
+  or clear the quarantine automatically.
 - Run `"$RUNNER" rollback` to swap the golden base with the previous validated
   image. Each promotion preserves one rollback image (`<base>-previous`).
 - Set `TART_XCUI_KEEP_FAILED=1` for one run when interactive inspection is

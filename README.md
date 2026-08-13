@@ -36,9 +36,10 @@ image.
   validate it against a checked-in config, and only then promote it — keeping
   the previous image for one-command rollback. An interrupted or broken run
   can be cleared with `reset` without touching the base. If an interrupted run
-  is followed by a host panic, the runner instead enters a persistent safety
-  quarantine and will not start Tart again until the panic has been inspected
-  and explicitly acknowledged.
+  is followed by a host panic or a file-exhaustion crash of the graphical login
+  session, the runner instead enters a persistent safety quarantine and will
+  not start Tart again until the diagnostic has been inspected and explicitly
+  acknowledged.
 - Runs can execute in parallel, each in its own clone; image changes are
   exclusive. Every run is bounded by a watchdog timeout, so a hung test
   can't wedge the machine. Set `TART_XCUI_BASE_VM` to keep multiple golden

@@ -147,7 +147,7 @@ runner_pid_is_active() {
   [[ $command == *"$SCRIPT"* ]]
 }
 
-panic_after_marker() {
+host_failure_after_marker() {
   local marker=$1 candidate
   local -a roots
   roots=()
@@ -159,19 +159,29 @@ panic_after_marker() {
     print -r -- "$candidate"
     return 0
   done
+  for candidate in ${^roots}/*.ips(N); do
+    [[ $candidate -nt $marker ]] || continue
+    # A system-wide file-table failure can terminate loginwindow/WindowServer
+    # without producing a kernel panic. Treat that graphical-session crash as
+    # equally unsafe: it logs the same resource error seen in the guest copy.
+    grep -Fq 'Too many open files in system' "$candidate" 2>/dev/null || continue
+    grep -Eq '"app_name":"(loginwindow|WindowServer)"' "$candidate" 2>/dev/null || continue
+    print -r -- "$candidate"
+    return 0
+  done
 }
 
 record_interrupted_run_state() {
-  local marker panic run_id
+  local marker diagnostic run_id
   for marker in "$RUNS_DIR"/*.pid(N); do
     runner_pid_is_active "$marker" && continue
-    panic=$(panic_after_marker "$marker")
-    [[ -n $panic ]] || continue
+    diagnostic=$(host_failure_after_marker "$marker")
+    [[ -n $diagnostic ]] || continue
     run_id=${marker:t:r}
     if [[ ! -f $HOST_CRASH_QUARANTINE ]]; then
       {
         print "run=$run_id"
-        print "panic=${panic:t}"
+        print "diagnostic=${diagnostic:t}"
         print "detected=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
       } >"$HOST_CRASH_QUARANTINE"
     fi
@@ -182,7 +192,7 @@ refuse_unsafe_state() {
   local marker
   record_interrupted_run_state
   if [[ -f $HOST_CRASH_QUARANTINE ]]; then
-    die "host crash quarantine is active; inspect the panic and run 'tart-runner reset --acknowledge-host-crash' only after the host risk is understood"
+    die "host crash quarantine is active; inspect the recorded diagnostic and run 'tart-runner reset --acknowledge-host-crash' only after the host risk is understood"
   fi
   for marker in "$RUNS_DIR"/*.pid(N); do
     runner_pid_is_active "$marker" && continue
@@ -276,7 +286,7 @@ doctor() {
   print "active runs: $active"
   print "interrupted runs: $interrupted"
   if [[ -f $HOST_CRASH_QUARANTINE ]]; then
-    print "host safety: QUARANTINED (panic followed an interrupted run)"
+    print "host safety: QUARANTINED (host failure followed an interrupted run)"
     failed=1
   elif (( interrupted )); then
     print "host safety: recovery required (run reset before another VM)"
@@ -440,8 +450,8 @@ run_cmd() {
   cp "$REFERENCES/$helper" "$result_dir/$helper"
   print "results: $result_dir"
 
-  # Register before the first Tart mutation. A host panic during clone or boot
-  # must leave durable evidence for the next invocation to fail closed on.
+  # Register before the first Tart mutation. A host failure during clone or
+  # boot must leave durable evidence for the next invocation to fail closed on.
   print $$ >"$RUNS_DIR/$RUN_ID.pid"
 
   # The lock covers only the clone: cheap, and it serializes against image
@@ -529,7 +539,7 @@ reset_entry() {
   prepare_dirs
   record_interrupted_run_state
   if [[ -f $HOST_CRASH_QUARANTINE ]] && (( ! acknowledge )); then
-    die "host crash quarantine is active; inspect the panic, then use 'reset --acknowledge-host-crash' to explicitly accept recovery"
+    die "host crash quarantine is active; inspect the recorded diagnostic, then use 'reset --acknowledge-host-crash' to explicitly accept recovery"
   fi
   need_tart
   lock_runner 60

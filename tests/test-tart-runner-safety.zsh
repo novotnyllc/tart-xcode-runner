@@ -112,7 +112,7 @@ test_interrupted_run_after_host_panic_quarantines_future_runs() {
     fail "host crash did not trip the quarantine"
   [[ -f "$data/.state/host-crash-quarantine" ]] ||
     fail "host crash quarantine was not persisted"
-  grep -Fq 'panic=host.panic' "$data/.state/host-crash-quarantine" ||
+  grep -Fq 'diagnostic=host.panic' "$data/.state/host-crash-quarantine" ||
     fail "quarantine selected hidden bookkeeping instead of the real panic"
   [[ ! -s $log ]] || fail "Tart was invoked after interrupted host crash evidence"
 
@@ -140,6 +140,36 @@ test_interrupted_run_after_host_panic_quarantines_future_runs() {
     fail "explicit host-crash recovery failed"
   [[ ! -e "$data/.state/host-crash-quarantine" ]] ||
     fail "explicit recovery did not clear host quarantine"
+}
+
+test_interrupted_run_after_login_session_file_exhaustion_quarantines() {
+  local case_root="$TMP/login-session-crash"
+  local repo="$case_root/repo" data="$case_root/data" bin="$case_root/bin"
+  local log="$case_root/tart.log" diagnostics="$case_root/DiagnosticReports"
+  local output="$case_root/output.log"
+  mkdir -p "$repo" "$data/.state/runs" "$diagnostics"
+  print source >"$repo/App.swift"
+  print 999999 >"$data/.state/runs/20260813T185416Z-16795.pid"
+  touch -t 202608131154 "$data/.state/runs/20260813T185416Z-16795.pid"
+  cat >"$diagnostics/loginwindow-2026-08-13-115955.ips" <<'EOF'
+{"app_name":"loginwindow","timestamp":"2026-08-13 11:59:55.00 -0700","bug_type":"309"}
+{"exception":{"type":"EXC_BAD_ACCESS","subtype":" FS pagein error: 23 Too many open files in system"}}
+EOF
+  touch -t 202608131159 "$diagnostics/loginwindow-2026-08-13-115955.ips"
+  make_fake_tart "$bin" "$log"
+
+  run_failing "$output" env \
+    PATH="$bin:$PATH" FAKE_TART_LOG="$log" \
+    TART_XCUI_DATA_HOME="$data" TART_XCUI_BASE_VM=base \
+    TART_XCUI_DIAGNOSTIC_REPORTS="$diagnostics" \
+    "$RUNNER" run --repo "$repo" -- /usr/bin/true
+
+  grep -Fq 'host crash quarantine' "$output" ||
+    fail "login-session file exhaustion did not trip the quarantine"
+  grep -Fq 'diagnostic=loginwindow-2026-08-13-115955.ips' \
+    "$data/.state/host-crash-quarantine" ||
+    fail "login-session crash diagnostic was not persisted"
+  [[ ! -s $log ]] || fail "Tart was invoked after login-session crash evidence"
 }
 
 test_run_and_exec_share_private_control_socket_directory() {
@@ -197,5 +227,6 @@ EOF
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
+test_interrupted_run_after_login_session_file_exhaustion_quarantines
 test_run_and_exec_share_private_control_socket_directory
 print 'tart runner safety tests passed'
