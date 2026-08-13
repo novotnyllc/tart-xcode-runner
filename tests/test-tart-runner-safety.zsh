@@ -224,9 +224,67 @@ EOF
   [[ ! -e $run_cwd ]] || fail "runner-owned control socket directory was not cleaned"
 }
 
+test_image_validation_uses_private_control_socket_directory() {
+  local case_root="$TMP/image-private-control-socket"
+  local data="$case_root/data" bin="$case_root/bin" log="$case_root/tart.log"
+  local caller="$case_root/caller" output="$case_root/output.log"
+  local config="$case_root/image.json"
+  mkdir -p "$bin" "$caller"
+  cat >"$config" <<'EOF'
+{
+  "name": "safety-test",
+  "buildStrategy": "download",
+  "platforms": []
+}
+EOF
+  cat >"$bin/tart" <<'EOF'
+#!/bin/zsh
+set -eu
+print -r -- "$PWD|$*" >>"$FAKE_TART_LOG"
+case ${1:-} in
+  list) print 'base' ;;
+  run)
+    : >control.sock
+    sleep 2
+    rm -f control.sock
+    ;;
+  exec) [[ -e control.sock ]] || exit 71 ;;
+  stop|delete) ;;
+  *) exit 70 ;;
+esac
+EOF
+  chmod +x "$bin/tart"
+  : >"$log"
+
+  (
+    cd "$caller"
+    env PATH="$bin:$PATH" FAKE_TART_LOG="$log" \
+      TART_XCUI_DATA_HOME="$data" TART_XCUI_BASE_VM=base \
+      "$ROOT/skills/tart-xcode-runner/references/prepare-image.zsh" \
+      rebuild "$config" >"$output" 2>&1
+  ) || fail "private image-validation control-socket run failed"
+
+  grep -Fq 'Golden image already matches' "$output" ||
+    fail "image validation did not complete"
+  [[ ! -e "$caller/control.sock" ]] ||
+    fail "image validation polluted the caller directory"
+  local run_cwd exec_cwd
+  run_cwd=$(sed -n '/|run /{s/|.*//;p;q;}' "$log")
+  exec_cwd=$(sed -n '/|exec /{s/|.*//;p;q;}' "$log")
+  [[ -n $run_cwd && $run_cwd == "$exec_cwd" ]] ||
+    fail "image validation run and exec did not share a private directory"
+  local normalized_data=${data:A}
+  local normalized_run_cwd=${run_cwd:A}
+  [[ $normalized_run_cwd == "$normalized_data/.state/boots"/* ]] ||
+    fail "image validation did not use a runner-owned socket directory"
+  [[ ! -e $run_cwd ]] ||
+    fail "image validation did not clean its private socket directory"
+}
+
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
 test_interrupted_run_after_login_session_file_exhaustion_quarantines
 test_run_and_exec_share_private_control_socket_directory
+test_image_validation_uses_private_control_socket_directory
 print 'tart runner safety tests passed'

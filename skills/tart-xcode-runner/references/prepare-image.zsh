@@ -16,6 +16,7 @@ export TART_HOME=${TART_XCUI_TART_HOME:-"$DATA_HOME/.tart"}
 STATE="$DATA_HOME/.state"
 SHARE="$DATA_HOME/vm-share"
 CACHE="$SHARE/cache"
+IMAGE_BOOT_DIR="$STATE/boots/image-$$"
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
 PACKED_VM=${TART_XCUI_PACKED_VM:-${BASE_VM}-packed}
 DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-26.5.json"}
@@ -25,7 +26,24 @@ UPGRADE_TIMEOUT=${TART_XCUI_UPGRADE_TIMEOUT:-7200}
 PACKER_TIMEOUT=${TART_XCUI_PACKER_TIMEOUT:-3600}
 UPGRADE_RUN_PID=
 
-mkdir -p "$STATE"
+mkdir -p "$STATE" "$STATE/boots"
+[[ $IMAGE_BOOT_DIR == "$STATE/boots/"* ]] || {
+  print -u2 -- "error: refusing unsafe image boot directory: $IMAGE_BOOT_DIR"
+  exit 1
+}
+rm -rf -- "$IMAGE_BOOT_DIR"
+mkdir -p "$IMAGE_BOOT_DIR"
+
+# Tart 2.34 resolves its control socket relative to the caller's working
+# directory. Keep every image operation in one private, per-process directory
+# so validation cannot collide with a stale socket or pollute the repository.
+tart() {
+  (cd "$IMAGE_BOOT_DIR" && command tart "$@")
+}
+
+cleanup_image_boot_dir() {
+  rm -rf -- "$IMAGE_BOOT_DIR"
+}
 
 usage() {
   cat <<'EOF'
@@ -563,3 +581,4 @@ case ${1:-help} in
   help|-h|--help) usage ;;
   *) usage; die "unknown command: ${1:-}" ;;
 esac
+cleanup_image_boot_dir
