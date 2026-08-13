@@ -245,7 +245,7 @@ case ${1:-} in
   list) print 'base' ;;
   run)
     : >control.sock
-    sleep 2
+    sleep 10
     rm -f control.sock
     ;;
   exec) [[ -e control.sock ]] || exit 71 ;;
@@ -262,7 +262,7 @@ EOF
       TART_XCUI_DATA_HOME="$data" TART_XCUI_BASE_VM=base \
       "$ROOT/skills/tart-xcode-runner/references/prepare-image.zsh" \
       rebuild "$config" >"$output" 2>&1
-  ) || fail "private image-validation control-socket run failed"
+  ) || fail "private image-validation control-socket run failed: $(<"$output"); $(<"$data/.state/validate-image.log")"
 
   grep -Fq 'Golden image already matches' "$output" ||
     fail "image validation did not complete"
@@ -281,10 +281,62 @@ EOF
     fail "image validation did not clean its private socket directory"
 }
 
+test_doctor_recognizes_live_runner_started_in_pipeline() {
+  local case_root="$TMP/live-pipeline-runner"
+  local repo="$case_root/repo" data="$case_root/data" bin="$case_root/bin"
+  local log="$case_root/tart.log" output="$case_root/output.log"
+  local doctor_output="$case_root/doctor.log" pipeline_pid marker
+  mkdir -p "$repo" "$bin"
+  print source >"$repo/App.swift"
+  cat >"$bin/tart" <<'EOF'
+#!/bin/zsh
+set -eu
+print -r -- "$*" >>"$FAKE_TART_LOG"
+case ${1:-} in
+  --version) print 'test-tart 1.0' ;;
+  list) print 'base' ;;
+  clone) sleep 5 ;;
+  *) exit 70 ;;
+esac
+EOF
+  chmod +x "$bin/tart"
+  : >"$log"
+
+  (
+    env PATH="$bin:$PATH" FAKE_TART_LOG="$log" \
+      TART_XCUI_DATA_HOME="$data" TART_XCUI_RESULTS="$data/results" \
+      TART_XCUI_BASE_VM=base TART_XCUI_RUN_TIMEOUT=30 \
+      "$RUNNER" run --repo "$repo" -- /usr/bin/true 2>&1 | tee "$output"
+  ) >/dev/null &
+  pipeline_pid=$!
+
+  for _ in {1..50}; do
+    marker=($data/.state/runs/*.pid(N))
+    (( ${#marker[@]} == 1 )) && break
+    sleep 0.1
+  done
+  (( ${#marker[@]} == 1 )) || fail "pipelined runner did not register its PID receipt"
+  local marker_pid marker_command
+  marker_pid=$(<"$marker[1]")
+  marker_command=$(ps -p "$marker_pid" -o command= 2>/dev/null || true)
+
+  env PATH="$bin:$PATH" FAKE_TART_LOG="$log" \
+    TART_XCUI_DATA_HOME="$data" TART_XCUI_BASE_VM=base \
+    "$RUNNER" doctor >"$doctor_output" 2>&1 ||
+    fail "doctor failed during live pipelined run (pid=$marker_pid command=$marker_command): $(<"$doctor_output")"
+  grep -Fq 'active runs: 1' "$doctor_output" ||
+    fail "doctor did not recognize the live pipelined runner"
+  grep -Fq 'interrupted runs: 0' "$doctor_output" ||
+    fail "doctor misclassified the live pipelined runner as interrupted"
+
+  wait "$pipeline_pid" 2>/dev/null || true
+}
+
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
 test_interrupted_run_after_login_session_file_exhaustion_quarantines
 test_run_and_exec_share_private_control_socket_directory
 test_image_validation_uses_private_control_socket_directory
+test_doctor_recognizes_live_runner_started_in_pipeline
 print 'tart runner safety tests passed'

@@ -140,7 +140,7 @@ need_tart() {
 
 runner_pid_is_active() {
   local marker=$1 pid command
-  pid=$(sed -n '1s/[^0-9].*$//p' "$marker" 2>/dev/null || true)
+  pid=$(sed -n '1{s/[^0-9].*$//;p;}' "$marker" 2>/dev/null || true)
   [[ $pid == <-> ]] || return 1
   kill -0 "$pid" 2>/dev/null || return 1
   command=$(ps -p "$pid" -o command= 2>/dev/null || true)
@@ -273,10 +273,9 @@ doctor() {
       print "base VM:    $BASE_VM (missing; run prepare)"
       failed=1
     }
-  local f pid active=0 interrupted=0
+  local f active=0 interrupted=0
   record_interrupted_run_state
   for f in "$RUNS_DIR"/*.pid(N); do
-    pid=$(sed -n '1s/[^0-9].*$//p' "$f" 2>/dev/null || true)
     if runner_pid_is_active "$f"; then
       (( ++active ))
     else
