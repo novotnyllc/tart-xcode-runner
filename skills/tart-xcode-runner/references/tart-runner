@@ -5,7 +5,13 @@ set -eu
 SCRIPT=${0:A}
 REFERENCES=${SCRIPT:h}
 ROOT=${REFERENCES:h:h:h}
-if [[ -d "$ROOT/.git" ]]; then
+# Marketplaces install this plugin by git clone, so "$ROOT/.git" exists in a
+# plugin cache too and cannot by itself distinguish a source checkout. Without
+# the extra guards every install gets its own DATA_HOME: Claude Code and Codex
+# each build a separate golden image, and because the cache path is version
+# pinned, every plugin update orphans the previous image and rebuilds from
+# scratch.
+if [[ -d "$ROOT/.git" && -z ${CLAUDE_PLUGIN_ROOT:-}${CODEX_PLUGIN_ROOT:-} && "$ROOT" != */plugins/cache/* ]]; then
   DEFAULT_DATA_HOME=$ROOT
 else
   DEFAULT_DATA_HOME="$HOME/Library/Application Support/Tart Xcode Runner"
