@@ -26,6 +26,7 @@ This repo has no CI — the check below is the gate. It stubs `security`,
 
 ```sh
 tests/test-setup-developer-id.zsh
+tests/test-tart-runner-safety.zsh
 ```
 
 Both manifests (`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`)
