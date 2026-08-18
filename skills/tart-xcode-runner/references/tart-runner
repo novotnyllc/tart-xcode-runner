@@ -92,7 +92,32 @@ tart_from() {
 fresh_boot_dir() {
   local directory="$STATE/boots/$1"
   [[ $directory == "$STATE/boots/"* ]] || die "refusing unsafe boot directory: $directory"
-  rm -rf -- "$directory"
+  # A leftover control socket here is not automatically garbage. Blindly
+  # rm -rf'ing the directory would delete a socket a LIVE tart still owns,
+  # turning someone else's running VM into an unexplained failure. Distinguish
+  # the two cases before touching anything (issue #5).
+  if [[ -d $directory ]]; then
+    local -a entries owners
+    # find, not a glob qualifier: bare glob qualifiers are disabled in some
+    # shell configurations (NO_BARE_GLOB_QUAL), and a silently-empty match here
+    # would read as "nothing owns it" — the exact wrong answer.
+    entries=(${(f)"$(find "$directory" -mindepth 1 -maxdepth 1 2>/dev/null)"})
+    owners=()
+    (( ${#entries} == 0 )) ||
+      owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null | sort -u)"})
+    if (( ${#owners} > 0 )); then
+      die "refusing to reuse boot directory $directory: still owned by live pid(s) ${owners[*]}. Stop that run, or wait for it to finish."
+    fi
+    # Unowned: an interrupted run left it. Quarantine rather than delete, so the
+    # evidence survives for the same reason interrupted runs keep their markers.
+    local stamp quarantine
+    stamp=$(date +%Y%m%d-%H%M%S)
+    quarantine="$STATE/quarantine/boots/$1-$stamp"
+    mkdir -p -- "${quarantine:h}"
+    mv -- "$directory" "$quarantine" ||
+      die "could not quarantine stale boot directory $directory"
+    print -u2 -- "tart: quarantined stale boot directory from an interrupted run -> $quarantine"
+  fi
   mkdir -p "$directory"
   print -r -- "$directory"
 }
