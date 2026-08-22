@@ -332,6 +332,88 @@ EOF
   wait "$pipeline_pid" 2>/dev/null || true
 }
 
+# Issue #5: a stale control socket from an interrupted run cost the whole
+# readiness timeout and looked like a VM boot failure. Blindly rm -rf'ing the
+# boot directory would fix that and introduce a worse bug: deleting a socket a
+# LIVE tart still owns. Both halves are pinned here.
+test_stale_boot_socket_is_quarantined_but_live_one_fails_closed() {
+  local case_root="$TMP/boot-socket"
+  local state="$case_root/state"
+  mkdir -p "$state/boots/stale-run"
+  : >"$state/boots/stale-run/control.sock"
+
+  local harness="$case_root/harness.zsh"
+  cat >"$harness" <<'EOF'
+#!/bin/zsh
+set -eu
+STATE=$1
+die() { print -u2 -- "error: $*"; exit 1; }
+eval "$(sed -n '/^fresh_boot_dir() {/,/^}/p' "$RUNNER")"
+fresh_boot_dir "$2"
+EOF
+  chmod +x "$harness"
+
+  # Unowned: quarantined, and the run gets a fresh directory.
+  RUNNER="$RUNNER" zsh "$harness" "$state" stale-run >/dev/null 2>&1 ||
+    fail 'a stale unowned boot socket must not block the run'
+  [[ -d "$state/boots/stale-run" ]] ||
+    fail 'a fresh boot directory must exist after quarantining a stale one'
+  local -a quarantined
+  quarantined=(${(f)"$(find "$state/quarantine/boots" -mindepth 1 -maxdepth 1 2>/dev/null)"})
+  (( ${#quarantined} == 1 )) ||
+    fail 'the stale boot directory must be quarantined, not deleted'
+  [[ -e "${quarantined[1]}/control.sock" ]] ||
+    fail 'the stale control socket must move into quarantine'
+
+  # Owned by a live process: must refuse rather than delete it.
+  mkdir -p "$state/boots/live-run"
+  # A held-open regular file, not a real AF_UNIX socket: the suite's temp root
+  # pushes the path past the ~104-byte sun_path limit, so a bind would silently
+  # fail and the test would assert against an empty directory. The check under
+  # test asks lsof whether ANY entry has a live owner, so this exercises the
+  # same path without the length limit.
+  python3 -c "
+import time
+f = open('$state/boots/live-run/control.sock', 'w')
+time.sleep(30)" >/dev/null 2>&1 &
+  local holder=$!
+  # Wait for the bind rather than guessing. A sleep that is too short leaves no
+  # socket, the check finds no owner, and the test passes for the wrong reason —
+  # it would be asserting against an empty directory.
+  local waited=0
+  while [[ ! -e "$state/boots/live-run/control.sock" ]] && (( waited < 50 )); do
+    sleep 0.1
+    (( waited += 1 ))
+  done
+  [[ -e "$state/boots/live-run/control.sock" ]] ||
+    fail 'test setup: the live holder never bound its socket'
+  local out="$case_root/live.err"
+  if RUNNER="$RUNNER" zsh "$harness" "$state" live-run >/dev/null 2>"$out"; then
+    kill $holder 2>/dev/null || true
+    fail 'a boot directory owned by a live process must fail closed'
+  fi
+  kill $holder 2>/dev/null || true
+  grep -q 'live pid' "$out" ||
+    fail "refusal must name the live owner; got: $(head -1 "$out")"
+  [[ -e "$state/boots/live-run/control.sock" ]] ||
+    fail 'the live socket must be left alone, not deleted'
+
+  # An lsof that cannot answer at all (not even a failed search) must fail
+  # closed. A stub that exits 127 simulates a missing/broken lsof binary; the
+  # guard under test must treat that as "cannot determine ownership", never as
+  # "unowned".
+  mkdir -p "$state/boots/error-run" "$case_root/bin"
+  : >"$state/boots/error-run/control.sock"
+  printf '#!/bin/sh\nexit 127\n' >"$case_root/bin/lsof"
+  chmod +x "$case_root/bin/lsof"
+  local out2="$case_root/error.err"
+  if PATH="$case_root/bin:$PATH" RUNNER="$RUNNER" zsh "$harness" "$state" error-run >/dev/null 2>"$out2"; then
+    fail 'a boot directory lsof cannot inspect must fail closed, not quarantine'
+  fi
+  grep -qE 'lsof( -V)? exited 127' "$out2" ||
+    fail "refusal must name the inspection failure; got: $(head -1 "$out2")"
+}
+
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
@@ -339,4 +421,5 @@ test_interrupted_run_after_login_session_file_exhaustion_quarantines
 test_run_and_exec_share_private_control_socket_directory
 test_image_validation_uses_private_control_socket_directory
 test_doctor_recognizes_live_runner_started_in_pipeline
+test_stale_boot_socket_is_quarantined_but_live_one_fails_closed
 print 'tart runner safety tests passed'
