@@ -109,14 +109,18 @@ fresh_boot_dir() {
     owners=()
     if (( ${#entries} > 0 )); then
       local -a raw_owners
-      local lsof_status=0
-      # No pipeline here: sort would mask lsof's exit status. lsof exits 1 both
-      # for "no process owns these" and for real errors, but 0/1 are the only
-      # statuses that mean the ownership question was actually answered;
-      # anything else (missing binary, crash) fails closed.
-      raw_owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null)"}) || lsof_status=$?
-      if (( lsof_status != 0 && lsof_status != 1 )); then
-        die "cannot determine owners of boot directory $directory (lsof exited $lsof_status); refusing to treat it as stale"
+      local lsof_status=0 lsof_err
+      # lsof returns exit 1 for "no owner found" AND for errors like a permission
+      # failure inspecting a path. The error text tells them apart:
+      # "no file use located:" is the benign failed search, but anything else
+      # (status/permission errors) means lsof could not answer the ownership
+      # question and the directory must fail closed, not quarantine.
+      lsof_err="$(lsof -V -t -- "${entries[@]}" 2>&1 >/dev/null)" || lsof_status=$?
+      local owners_status=0
+      raw_owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null)"}) || owners_status=$?
+      local benign='no file use located:'
+      if print -r -- $lsof_err | grep -v -- "$benign" | grep -q .; then
+        die "cannot verify owners of boot directory $directory; lsof could not answer ownership for every entry:" '$'\n'' "$lsof_err"
       fi
       owners=(${(u)raw_owners})
     fi
