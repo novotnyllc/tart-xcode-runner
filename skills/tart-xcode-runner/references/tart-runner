@@ -101,10 +101,25 @@ fresh_boot_dir() {
     # find, not a glob qualifier: bare glob qualifiers are disabled in some
     # shell configurations (NO_BARE_GLOB_QUAL), and a silently-empty match here
     # would read as "nothing owns it" — the exact wrong answer.
-    entries=(${(f)"$(find "$directory" -mindepth 1 -maxdepth 1 2>/dev/null)"})
+    local find_status=0
+    entries=(${(f)"$(find "$directory" -mindepth 1 -maxdepth 1 2>/dev/null)"}) || find_status=$?
+    # Fail closed: an inspection error must not read as "nothing owns it".
+    (( find_status == 0 )) ||
+      die "cannot inspect boot directory $directory (find exited $find_status); refusing to treat it as stale"
     owners=()
-    (( ${#entries} == 0 )) ||
-      owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null | sort -u)"})
+    if (( ${#entries} > 0 )); then
+      local -a raw_owners
+      local lsof_status=0
+      # No pipeline here: sort would mask lsof's exit status. lsof exits 1 both
+      # for "no process owns these" and for real errors, but 0/1 are the only
+      # statuses that mean the ownership question was actually answered;
+      # anything else (missing binary, crash) fails closed.
+      raw_owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null)"}) || lsof_status=$?
+      if (( lsof_status != 0 && lsof_status != 1 )); then
+        die "cannot determine owners of boot directory $directory (lsof exited $lsof_status); refusing to treat it as stale"
+      fi
+      owners=(${(u)raw_owners})
+    fi
     if (( ${#owners} > 0 )); then
       die "refusing to reuse boot directory $directory: still owned by live pid(s) ${owners[*]}. Stop that run, or wait for it to finish."
     fi

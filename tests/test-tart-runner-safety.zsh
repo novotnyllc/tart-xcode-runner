@@ -362,6 +362,8 @@ EOF
   quarantined=(${(f)"$(find "$state/quarantine/boots" -mindepth 1 -maxdepth 1 2>/dev/null)"})
   (( ${#quarantined} == 1 )) ||
     fail 'the stale boot directory must be quarantined, not deleted'
+  [[ -e "${quarantined[1]}/control.sock" ]] ||
+    fail 'the stale control socket must move into quarantine'
 
   # Owned by a live process: must refuse rather than delete it.
   mkdir -p "$state/boots/live-run"
