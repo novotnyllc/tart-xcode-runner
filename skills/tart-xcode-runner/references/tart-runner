@@ -119,6 +119,8 @@ fresh_boot_dir() {
       local owners_status=0
       raw_owners=(${(f)"$(lsof -t -- "${entries[@]}" 2>/dev/null)"}) || owners_status=$?
       local benign='no file use located:'
+      (( lsof_status == 0 || lsof_status == 1 )) ||
+        die "cannot inspect boot directory $directory (lsof -V exited $lsof_status); refusing to treat it as stale"
       (( owners_status == 0 || owners_status == 1 )) ||
         die "cannot inspect boot directory $directory (lsof exited $owners_status); refusing to treat it as stale"
       if print -r -- $lsof_err | grep -v -- "$benign" | grep -q .; then

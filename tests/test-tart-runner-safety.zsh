@@ -410,7 +410,7 @@ time.sleep(30)" >/dev/null 2>&1 &
   if PATH="$case_root/bin:$PATH" RUNNER="$RUNNER" zsh "$harness" "$state" error-run >/dev/null 2>"$out2"; then
     fail 'a boot directory lsof cannot inspect must fail closed, not quarantine'
   fi
-  grep -q 'lsof exited 127' "$out2" ||
+  grep -qE 'lsof( -V)? exited 127' "$out2" ||
     fail "refusal must name the inspection failure; got: $(head -1 "$out2")"
 }
 
