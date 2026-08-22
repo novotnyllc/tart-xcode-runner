@@ -397,6 +397,21 @@ time.sleep(30)" >/dev/null 2>&1 &
     fail "refusal must name the live owner; got: $(head -1 "$out")"
   [[ -e "$state/boots/live-run/control.sock" ]] ||
     fail 'the live socket must be left alone, not deleted'
+
+  # An lsof that cannot answer at all (not even a failed search) must fail
+  # closed. A stub that exits 127 simulates a missing/broken lsof binary; the
+  # guard under test must treat that as "cannot determine ownership", never as
+  # "unowned".
+  mkdir -p "$state/boots/error-run" "$case_root/bin"
+  : >"$state/boots/error-run/control.sock"
+  printf '#!/bin/sh\nexit 127\n' >"$case_root/bin/lsof"
+  chmod +x "$case_root/bin/lsof"
+  local out2="$case_root/error.err"
+  if PATH="$case_root/bin:$PATH" RUNNER="$RUNNER" zsh "$harness" "$state" error-run >/dev/null 2>"$out2"; then
+    fail 'a boot directory lsof cannot inspect must fail closed, not quarantine'
+  fi
+  grep -q 'lsof exited 127' "$out2" ||
+    fail "refusal must name the inspection failure; got: $(head -1 "$out2")"
 }
 
 test_repo_budget_refuses_before_tart_boot
