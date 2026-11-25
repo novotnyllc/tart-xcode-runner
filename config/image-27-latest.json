@@ -1,0 +1,9 @@
+{
+  "name": "macos-27-latest",
+  "buildStrategy": "download",
+  "seedImage": "ghcr.io/cirruslabs/macos-golden-gate-xcode:latest",
+  "macOSMajorVersion": 27,
+  "platforms": [
+    "iOS"
+  ]
+}
