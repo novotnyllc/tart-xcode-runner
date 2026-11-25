@@ -22,7 +22,7 @@ export TART_HOME=${TART_XCUI_TART_HOME:-"$DATA_HOME/.tart"}
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
 CANDIDATE_VM=${TART_XCUI_CANDIDATE_VM:-${BASE_VM}-candidate}
 PREVIOUS_VM=${TART_XCUI_PREVIOUS_VM:-${BASE_VM}-previous}
-IMAGE=${TART_XCUI_IMAGE:-ghcr.io/cirruslabs/macos-tahoe-xcode@sha256:61f6e857a3d65dd2f8daf9c51c7b837fa458bcc9181ae8556e645b534dab6bf6}
+IMAGE=${TART_XCUI_IMAGE:-}
 CPU=${TART_XCUI_CPU:-8}
 MEMORY=${TART_XCUI_MEMORY:-24576}
 DISK_SIZE=${TART_XCUI_DISK_SIZE:-150}
@@ -366,6 +366,10 @@ prepare_base() {
     print "Base VM already exists: $BASE_VM"
     return 0
   fi
+  if [[ -z $image ]]; then
+    image=$(/usr/bin/plutil -extract seedImage raw -o - "$ROOT/config/image-27-latest.json")
+  fi
+  [[ $image != */*:latest ]] || tart pull "$image"
 
   stop_vm "$CANDIDATE_VM"
   delete_vm "$CANDIDATE_VM"

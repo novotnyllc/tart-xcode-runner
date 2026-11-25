@@ -6,7 +6,7 @@ SCRIPT=${0:A}
 REFERENCES=${SCRIPT:h}
 ROOT=${REFERENCES:h:h:h}
 RUNNER="$REFERENCES/tart-runner"
-if [[ -d "$ROOT/.git" ]]; then
+if [[ -d "$ROOT/.git" && -z ${CLAUDE_PLUGIN_ROOT:-}${CODEX_PLUGIN_ROOT:-} && "$ROOT" != */plugins/cache/* ]]; then
   DEFAULT_DATA_HOME=$ROOT
 else
   DEFAULT_DATA_HOME="$HOME/Library/Application Support/Tart Xcode Runner"
@@ -19,7 +19,7 @@ CACHE="$SHARE/cache"
 IMAGE_BOOT_DIR="$STATE/boots/image-$$"
 BASE_VM=${TART_XCUI_BASE_VM:-tart-xcui-base}
 PACKED_VM=${TART_XCUI_PACKED_VM:-${BASE_VM}-packed}
-DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-26.5.json"}
+DEFAULT_CONFIG=${TART_XCUI_IMAGE_CONFIG:-"$ROOT/config/image-27-latest.json"}
 PACKER_TART_COMMIT=c10d61142fdce6ca40c139a6575ce898e867b0f1
 READY_TIMEOUT=${TART_XCUI_READY_TIMEOUT:-600}
 UPGRADE_TIMEOUT=${TART_XCUI_UPGRADE_TIMEOUT:-7200}
@@ -141,8 +141,9 @@ ensure_coordinate_plugin() {
 
 download_image() {
   [[ $# -ge 1 && $# -le 2 ]] || die "download requires OCI image and optional config"
-  local image=$1 config=${2:-$DEFAULT_CONFIG}
-  config=${config:A}
+  local image=$1 config=${2:-${TART_XCUI_IMAGE_CONFIG:-}}
+  [[ -z $config ]] || config=${config:A}
+  [[ $image != */*:latest ]] || tart pull "$image"
   stop_vm "$PACKED_VM"
   delete_vm "$PACKED_VM"
   tart clone "$image" "$PACKED_VM"
@@ -223,7 +224,10 @@ wait_for_build() {
 
 validate_exact_vm() {
   local vm=$1 config=$2 run_pid failed=0
-  local macos_version macos_build xcode_version xcode_build
+  local macos_major macos_version macos_build xcode_version xcode_build
+  macos_major=$(json_value "$config" macOSMajorVersion 2>/dev/null || true)
+  [[ -z $macos_major || $macos_major =~ '^[0-9]+$' ]] ||
+    die "macOSMajorVersion must be an integer"
   macos_version=$(json_value "$config" macOSVersion 2>/dev/null || true)
   macos_build=$(json_value "$config" macOSBuild 2>/dev/null || true)
   xcode_version=$(json_value "$config" xcodeVersion 2>/dev/null || true)
@@ -236,6 +240,7 @@ validate_exact_vm() {
   # Version keys are optional: a config pins only what it declares.
   tart exec "$vm" /bin/zsh -lc "
     set -e
+    [[ -z '$macos_major' ]] || test \"\$(/usr/bin/sw_vers -productVersion | /usr/bin/cut -d. -f1)\" = '$macos_major'
     [[ -z '$macos_version' ]] || test \"\$(/usr/bin/sw_vers -productVersion)\" = '$macos_version'
     [[ -z '$macos_build' ]] || test \"\$(/usr/bin/sw_vers -buildVersion)\" = '$macos_build'
     [[ -z '$xcode_version' ]] || test \"\$(/usr/bin/xcodebuild -version | /usr/bin/awk '/^Xcode/{print \$2}')\" = '$xcode_version'

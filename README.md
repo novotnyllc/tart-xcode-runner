@@ -43,7 +43,7 @@ image.
 - Runs can execute in parallel, each in its own clone; image changes are
   exclusive. Every run is bounded by a watchdog timeout, so a hung test
   can't wedge the machine. Set `TART_XCUI_BASE_VM` to keep multiple golden
-  images (say macOS 26 stable and the 27 beta) side by side.
+  images (say macOS 26 and 27) side by side.
 
 ## Install
 
@@ -63,8 +63,7 @@ codex plugin add tart-xcode-runner --marketplace novotnyllc
 
 Requirements: Apple Silicon Mac and [Tart](https://tart.run)
 (`brew tap openai/tools && brew trust --tap openai/tools && brew install openai/tools/tart`).
-The first image build downloads ~25 GB; VMs need disk space (200 GB
-allocated, thin-provisioned).
+The first image build downloads tens of gigabytes. VM disks are thin-provisioned.
 
 After installing, just ask your agent to run your tests — the skill triggers
 on its own for UI, XCUITest, and simulator work, and provisions the VM with
@@ -217,15 +216,17 @@ protected operation through an app relaunch.
 
 ## Image configs
 
-Golden images are reconstructed from checked-in JSON contracts, so any machine
-can rebuild the exact same VM:
+Checked-in JSON configs select and validate golden images.
 
-- [`config/image-26.5.json`](config/image-26.5.json) — current stable macOS +
-  Xcode from the published Tart image. The default; fast to set up, no local
-  Xcode download needed.
-- [`config/image-27-beta.json`](config/image-27-beta.json) — exact macOS 27 /
-  Xcode 27 beta builds, pinned by version, build number, and installer
-  checksum. Requires the beta Xcode app on the host.
+- [`config/image-27-latest.json`](config/image-27-latest.json) — the default.
+  Uses Cirrus Labs' current Golden Gate Xcode image when creating a golden VM.
+- [`config/image-26.5.json`](config/image-26.5.json) — the pinned Tahoe
+  image for projects that need macOS 26.
+- [`config/image-27-beta.json`](config/image-27-beta.json) — the original
+  macOS 27 and Xcode 27 beta 4 config.
+
+Run `tart-runner prepare --replace` to refresh an existing default VM from
+Cirrus Labs. The previous validated VM remains available for rollback.
 
 A project can pin its own environment by committing `.tart-xcode/image.json`
 at its repo root — the skill uses it automatically, and teammates (and their

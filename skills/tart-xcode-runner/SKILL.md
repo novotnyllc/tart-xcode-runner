@@ -38,10 +38,11 @@ DEVELOPER_ID_SETUP=$PLUGIN_ROOT/skills/tart-xcode-runner/references/setup-develo
 
    1. A config checked into the project being tested: `.tart-xcode/image.json`
       at the repo root. Honor it without asking.
-   2. The user explicitly asks for a beta or a specific OS/Xcode version.
-   3. The project requires beta SDKs (deployment target or SDK newer than the
-      current stable) → `"$PLUGIN_ROOT/config/image-27-beta.json"`.
-   4. Otherwise the stable default: `"$PLUGIN_ROOT/config/image-26.5.json"`.
+   2. If the project or user requires a specific OS or Xcode build, select
+      a matching config. Use `"$PLUGIN_ROOT/config/image-26.5.json"` for
+      the bundled Tahoe image.
+   3. Otherwise use `"$PLUGIN_ROOT/config/image-27-latest.json"` for
+      Cirrus Labs' latest Golden Gate Xcode image.
 
    Then build or update the golden image from it:
 
@@ -56,12 +57,13 @@ DEVELOPER_ID_SETUP=$PLUGIN_ROOT/skills/tart-xcode-runner/references/setup-develo
 
    Always run `rebuild` before considering any build: it validates the
    current golden image against the config and no-ops when it already
-   matches — the image may already exist from a previous session. Follow the
-   config's checked-in `buildStrategy`; do not pick a strategy yourself:
+   matches. To explicitly refresh the default golden VM, run
+   `"$RUNNER" prepare --replace`. Follow the config's checked-in
+   `buildStrategy`:
 
-   - `download` (stable default): clone the pinned published OCI seed image
-     and validate it. Fast; no local Xcode app needed.
-   - `upgrade` (beta default): clone the pinned preconfigured seed, apply the
+   - `download` (default): clone and validate the published OCI image.
+     A `:latest` seed resolves the current tag before cloning.
+   - `upgrade`: clone the pinned preconfigured seed, apply the
      pinned `InstallAssistant.pkg`, and install the configured host Xcode app,
      runtimes, CLI selection, license, Metal toolchain, and login settings —
      preserving guest agent, SSH, auto-login, and no-lock setup. Requires the
@@ -78,8 +80,8 @@ DEVELOPER_ID_SETUP=$PLUGIN_ROOT/skills/tart-xcode-runner/references/setup-develo
      device family or a seed-incompatible major release, both rare. Never
      choose it just because the exact target version has no published seed.
 
-   Direct commands also exist: `"$IMAGE_BUILDER" download OCI_IMAGE` promotes
-   a published image (validated against the config first), and
+   Direct commands also exist: `"$IMAGE_BUILDER" download OCI_IMAGE [CONFIG]`
+   validates and promotes a published image, and
    `"$IMAGE_BUILDER" packer --config CONFIG` runs the from-IPSW build; the
    packer path is unattended, bounded by `TART_XCUI_PACKER_TIMEOUT` (one hour
    default), and needs Packer and Go
@@ -278,7 +280,7 @@ export TART_XCUI_BASE_VM=tart-xcui-base-26   # this project targets macOS 26
 "$RUNNER" xcui-test --repo /path/to/repo -- -scheme App test
 ```
 
-Another project can use `TART_XCUI_BASE_VM=tart-xcui-base-27` with the beta
+Another project can use `TART_XCUI_BASE_VM=tart-xcui-base-27` with the default
 config; both images coexist in the same store, each with its own rollback.
 Pair the variable with the project's pinned `.tart-xcode/image.json` so the
 same shell sets both. The default base (`tart-xcui-base`) stays for
@@ -322,7 +324,7 @@ All knobs are environment variables; defaults in parentheses:
 - `TART_XCUI_BASE_VM` — golden image to use (`tart-xcui-base`); derived:
   `<base>-candidate`, `<base>-previous`, `<base>-packed`
 - `TART_XCUI_IMAGE_CONFIG` — default config for `rebuild`
-  (`config/image-26.5.json`)
+  (`config/image-27-latest.json`)
 - `TART_XCUI_CPU`, `TART_XCUI_MEMORY` (MB), `TART_XCUI_DISK_SIZE` (GB) —
   resources applied by `prepare` when the config doesn't set them
   (8 / 24576 / 150); config values win on rebuilds
@@ -335,7 +337,8 @@ All knobs are environment variables; defaults in parentheses:
   ceilings (3600 / 7200)
 - `TART_XCUI_KEEP_FAILED=1` — retain a failed run's VM for inspection
 - `TART_XCUI_GUEST_PASSWORD` — guest admin password (`admin`)
-- `TART_XCUI_IMAGE` — OCI image for a bare `prepare` (pinned 26.5 digest)
+- `TART_XCUI_IMAGE` — OCI image for a bare `prepare` (the seed in
+  `config/image-27-latest.json`)
 - `TART_XCUI_RUNS_WAIT` — how long image operations wait for active runs
   to drain before giving up (1800)
 
