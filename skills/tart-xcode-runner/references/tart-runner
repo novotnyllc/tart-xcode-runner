@@ -374,7 +374,7 @@ prepare_base() {
   tart set "$CANDIDATE_VM" --cpu "$CPU" --memory "$MEMORY" --disk-size "$DISK_SIZE"
   boot_dir=$(fresh_boot_dir "prepare-$CANDIDATE_VM")
   trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
-  tart_from "$boot_dir" run --no-graphics "$CANDIDATE_VM" >"$STATE/prepare.log" 2>&1 &
+  tart_from "$boot_dir" run --no-graphics --no-audio "$CANDIDATE_VM" >"$STATE/prepare.log" 2>&1 &
   run_pid=$!
   print "Waiting for the guest agent..."
   wait_for_agent "$CANDIDATE_VM" "$run_pid" "$boot_dir" ||
@@ -421,7 +421,7 @@ add_xcode_items() {
   tart clone "$BASE_VM" "$CANDIDATE_VM"
   boot_dir=$(fresh_boot_dir "add-$kind-$CANDIDATE_VM")
   trap 'stop_vm "$CANDIDATE_VM"' EXIT INT TERM HUP
-  tart_from "$boot_dir" run --no-graphics "$CANDIDATE_VM" >"$STATE/$log_name" 2>&1 &
+  tart_from "$boot_dir" run --no-graphics --no-audio "$CANDIDATE_VM" >"$STATE/$log_name" 2>&1 &
   run_pid=$!
   wait_for_agent "$CANDIDATE_VM" "$run_pid" "$boot_dir" ||
     die "candidate failed to start; see $STATE/$log_name"
@@ -516,7 +516,7 @@ run_cmd() {
   unlock_runner
 
   trap 'RUN_EXIT_CODE=130; cleanup_work_vm; exit 130' INT TERM HUP
-  local run_args=(--no-graphics --dir="artifacts:$result_dir")
+  local run_args=(--no-graphics --no-audio --dir="artifacts:$result_dir")
   (( has_repo == 0 )) || run_args+=(--dir="source:${repo}:ro")
   print "tart: booting $WORK_VM headless; the host stays free"
   # Tart 2.34.0 resolves its control socket relative to the launch directory
