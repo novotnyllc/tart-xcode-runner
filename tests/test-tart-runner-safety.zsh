@@ -414,6 +414,15 @@ time.sleep(30)" >/dev/null 2>&1 &
     fail "refusal must name the inspection failure; got: $(head -1 "$out2")"
 }
 
+test_every_vm_boot_disables_audio() {
+  # Tart's default sound device passes the host microphone into the guest; no run needs it.
+  local refs="$ROOT/skills/tart-xcode-runner/references" offenders
+  offenders=$(grep -nE '(^|[[:space:]])(tart|tart_from [^ ]+) run([[:space:]]|$)|run_args=\(' \
+    "$refs/tart-runner" "$refs/prepare-image.zsh" | grep -v -- '--no-audio' | grep -v 'run "${run_args' || true)
+  [[ -z $offenders ]] || fail "VM boot without --no-audio:\n$offenders"
+  grep -Eq 'run_args=\(.*--no-audio' "$refs/tart-runner" || fail "test run args lack --no-audio"
+}
+
 test_repo_budget_refuses_before_tart_boot
 test_generated_derived_data_is_outside_repo_budget
 test_interrupted_run_after_host_panic_quarantines_future_runs
@@ -423,3 +432,4 @@ test_image_validation_uses_private_control_socket_directory
 test_doctor_recognizes_live_runner_started_in_pipeline
 test_stale_boot_socket_is_quarantined_but_live_one_fails_closed
 print 'tart runner safety tests passed'
+test_every_vm_boot_disables_audio

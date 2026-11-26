@@ -186,7 +186,7 @@ start_upgrade_vm() {
     "$REFERENCES/tart-guest-daemon.plist" \
     "$SHARE/references/"
   for attempt in 1 2 3 4 5; do
-    tart run --no-graphics \
+    tart run --no-graphics --no-audio \
       --dir="${SHARE}:ro" \
       "$vm" >"$STATE/upgrade.log" 2>&1 &
     UPGRADE_RUN_PID=$!
@@ -202,7 +202,7 @@ start_upgrade_vm() {
 
 prime_vm() {
   local vm=$1 run_pid
-  tart run --no-graphics "$vm" >"$STATE/prime.log" 2>&1 &
+  tart run --no-graphics --no-audio "$vm" >"$STATE/prime.log" 2>&1 &
   run_pid=$!
   wait_for_agent "$vm" "$run_pid" ||
     die "candidate failed its initial boot; see $STATE/prime.log"
@@ -233,7 +233,7 @@ validate_exact_vm() {
   xcode_version=$(json_value "$config" xcodeVersion 2>/dev/null || true)
   xcode_build=$(json_value "$config" xcodeBuild 2>/dev/null || true)
   stop_vm "$vm"
-  tart run --no-graphics "$vm" >"$STATE/validate-image.log" 2>&1 &
+  tart run --no-graphics --no-audio "$vm" >"$STATE/validate-image.log" 2>&1 &
   run_pid=$!
   wait_for_agent "$vm" "$run_pid" ||
     die "$vm failed to start; see $STATE/validate-image.log"
