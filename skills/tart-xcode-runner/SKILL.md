@@ -1,6 +1,6 @@
 ---
 name: tart-xcode-runner
-description: Run any command, build, or test in a disposable macOS virtual machine (Tart). Use whenever the user wants work run in a VM, sandbox, container, clean room, or fresh/isolated/ephemeral/disposable environment, off-host, "not on my machine", or without polluting their system — especially xcodebuild, Xcode builds, unit tests, UI tests, XCUITests, iOS/macOS/simulator work, or trying something risky safely. ALWAYS use this by default for UI tests, XCUITests, and simulator-based test runs — even when the user doesn't mention a VM — because host UI automation steals their screen, keyboard, and focus. Also use to prepare, update, reset, roll back, or fetch logs and xcresult bundles from the test VM. Use when the user asks to create, request, install, verify, back up, or restore a macOS Developer ID Application certificate or signing identity, including Developer ID provisioning, restricted entitlements, Keychain access, or 1Password custody.
+description: Run commands, builds, or tests in a disposable macOS Tart VM (isolated/clean-room/off-host), especially xcodebuild, Xcode builds, unit tests, UI tests, XCUITests, and iOS/macOS simulator runs (always default for UI/simulator tests to avoid stealing host focus). Also prepare/reset/fetch logs or xcresult bundles and manage macOS Developer ID Application signing certs, entitlements, Keychain, or 1Password custody.
 ---
 
 # Tart Xcode Runner
